@@ -17,8 +17,8 @@ Files in this repo: `Dockerfile`, `podman-compose.prod.yml`,
 
 | Placeholder | Where | Default | Notes |
 |---|---|---|---|
-| `penlearn.<your-domain>` | Caddy block + DNS | — | the public hostname |
-| host port | `podman-compose.prod.yml` + Caddy | `3007` | change if 3007 is taken on the droplet |
+| `penlearn.guardcybersolutionsllc.com` | Caddy block + DNS | — | the public hostname |
+| host port | `podman-compose.prod.yml` + Caddy | `3014` | change if 3014 is taken on the droplet |
 | app dir | host + workflow `script` | `/opt/apps/penlearn` | matches the toolkit's `/opt/apps/<app>` convention |
 
 ---
@@ -53,9 +53,9 @@ CSP and the rest of the security headers are already emitted by Next
 (`next.config.ts`); Caddy adds HSTS and strips server-identifying headers.
 
 ```caddy
-penlearn.<your-domain> {
+penlearn.guardcybersolutionsllc.com {
     encode zstd gzip
-    reverse_proxy 127.0.0.1:3007
+    reverse_proxy 127.0.0.1:3014
 
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
@@ -73,8 +73,8 @@ penlearn.<your-domain> {
 ```
 
 ### 4. DNS
-Point `penlearn.<your-domain>` at the droplet. Behind Cloudflare: add the record
-**proxied (orange cloud)**, Min TLS 1.2, and confirm `dig +short penlearn.<your-domain>`
+Point `penlearn.guardcybersolutionsllc.com` at the droplet. Behind Cloudflare: add the record
+**proxied (orange cloud)**, Min TLS 1.2, and confirm `dig +short penlearn.guardcybersolutionsllc.com`
 returns a Cloudflare IP, not the origin.
 
 ---
@@ -110,5 +110,5 @@ Re-point to `:latest` once the next good build lands.
 - First push creates the `ghcr.io/ixiondt/penlearn` package (private by default);
   the workflow token can pull it during deploy. Make it public only if you want
   unauthenticated pulls.
-- Post-deploy: `curl -sI https://penlearn.<your-domain>/` should show no `Server`
+- Post-deploy: `curl -sI https://penlearn.guardcybersolutionsllc.com/` should show no `Server`
   / `X-Powered-By` header; check securityheaders.com for an A/A+.

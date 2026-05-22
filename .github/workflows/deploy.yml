@@ -80,14 +80,19 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           envs: GHCR_USER,GHCR_TOKEN
           command_timeout: 10m
-          # Unquoted heredoc so $GHCR_TOKEN expands in the outer shell; echo is a
+          # SSH in as `deploy` (sudoer), then drop to the isolated rootless-podman
+          # app user. Unquoted heredoc so $GHCR_TOKEN/$GHCR_USER expand in the
+          # outer shell before entering `sudo -i` (which strips env); echo is a
           # builtin so the token never lands in /proc/*/cmdline.
           script: |
             set -euo pipefail
-            echo "$GHCR_TOKEN" | podman login ghcr.io -u "$GHCR_USER" --password-stdin
-            trap 'podman logout ghcr.io || true' EXIT
-            cd /opt/apps/penlearn
-            podman pull ghcr.io/ixiondt/penlearn:latest
-            podman-compose -f podman-compose.prod.yml down 2>/dev/null || true
-            podman-compose -f podman-compose.prod.yml up -d
-            podman image prune -f || true
+            sudo -u penlearn-deploy -i bash <<EOF
+              set -euo pipefail
+              echo "$GHCR_TOKEN" | podman login ghcr.io -u "$GHCR_USER" --password-stdin
+              trap 'podman logout ghcr.io || true' EXIT
+              cd /opt/apps/penlearn
+              podman pull ghcr.io/ixiondt/penlearn:latest
+              podman-compose -f podman-compose.prod.yml down 2>/dev/null || true
+              podman-compose -f podman-compose.prod.yml up -d
+              podman image prune -f || true
+            EOF

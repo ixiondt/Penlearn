@@ -1,9 +1,9 @@
 # Production compose for the droplet. Lives at /opt/apps/penlearn/ on the host.
 # Image is built + pushed by .github/workflows/deploy.yml; this file only runs it.
 #
-# Host port 3007 is arbitrary — change it (and the Caddy reverse_proxy target in
-# DEPLOY.md) if 3007 is already taken on the droplet. Bound to 127.0.0.1 so the
-# container is reachable only via the Caddy reverse proxy, never directly.
+# Host port 3014 — the next free port on the shared droplet (3001-3013/3500/8080
+# are allocated). Bound to 127.0.0.1 so the container is reachable only via the
+# Caddy reverse proxy, never directly.
 
 services:
   penlearn:
@@ -11,7 +11,7 @@ services:
     container_name: penlearn
     restart: always
     ports:
-      - "127.0.0.1:3007:3000"
+      - "127.0.0.1:3014:3000"
     environment:
       - NODE_ENV=production
       - NEXT_TELEMETRY_DISABLED=1
