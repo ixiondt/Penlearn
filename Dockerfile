@@ -27,6 +27,10 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
+# Drop the bundled npm CLI — the standalone server runs via `node`, not npm, and
+# npm's vendored deps (e.g. picomatch) trip image scanners. Removing it also slims
+# the image and shrinks the attack surface.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 # standalone bundles a minimal node_modules + server.js; public/ and static/ are copied separately
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
