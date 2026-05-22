@@ -1,0 +1,22 @@
+node_modules/
+.next/
+out/
+dist/
+build/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+next-env.d.ts
+.eslintcache
+*.tsbuildinfo
+# generated at build (predev/prebuild via tsx scripts/build-search-index.ts)
+public/search-index.json
+# scratch
+check_*.js
+test_*.js
+debug_*.ts

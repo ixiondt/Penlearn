@@ -1,0 +1,132 @@
+## ATT&CK in one paragraph
+
+MITRE ATT&CK is a catalog of attacker behaviors organized by **tactic** (the why) and **technique**
+(the how). It's not a methodology, not a maturity model, not a compliance framework. It's a shared
+vocabulary so that "the attacker dumped LSASS" and "we saw procdump on a server" can be linked to
+the same idea — T1003.001, OS Credential Dumping: LSASS Memory.
+
+Two namespaces matter:
+
+- **Enterprise ATT&CK** (Txxxx) — the IT-focused matrix. Initial Access, Execution, Persistence,
+  Privilege Escalation, Defense Evasion, Credential Access, Discovery, Lateral Movement, Collection,
+  Command & Control, Exfiltration, Impact.
+- **ICS ATT&CK** (T0xxx) — the OT-focused matrix, separate technique set. Different threat model
+  entirely — the impact tactic includes things like "Loss of Safety" and "Loss of Control."
+
+Always note which matrix you're using. Mixing them is a tell that the analyst isn't reading carefully.
+
+## The format the toolkit expects
+
+CLAUDE.md §5 fixes the mapping format you'll use across every IR report, hunt finding, and Sigma rule:
+
+```text
+TACTIC → TECHNIQUE (T-number) → Observed Behavior → Data Source
+
+Initial Access  → T1566.001 Spear Phishing Attachment → .docx macro via email
+Execution       → T1059.001 PowerShell               → base64 encoded -EncodedCommand
+Persistence     → T1053.005 Scheduled Task           → "WindowsUpdater" runs cmd.exe at 0300
+Defense Evasion → T1027     Obfuscated Files          → base64+gzip payload
+Credential Acc. → T1003.001 LSASS Dump               → procdump.exe -ma lsass.exe
+Discovery       → T1082     System Info Discovery     → systeminfo, whoami /all
+Lateral Move.   → T1021.001 RDP                      → workstation-to-workstation
+Collection      → T1560.001 Archive via Utility       → 7zip staging before exfil
+C2              → T1071.001 Application Layer HTTP    → 60s jitter beacon, HTTPS
+Exfiltration    → T1041     Exfil Over C2 Channel     → staged archive sent via C2
+```
+
+Four columns, always in this order, always with the actual observed behavior — not a copy-paste of
+MITRE's description. The Sigma rule generator (`scripts/sigma-rule-builder.sh`) and the report
+generator both expect this format.
+
+## How to use it without breaking your brain
+
+ATT&CK is a vocabulary, not a checklist. Three failure modes to avoid:
+
+### Failure mode 1: ATT&CK theater
+
+Listing 15 techniques on a finding because they *might* have been used. You should map only what
+you can demonstrate from evidence — a process tree, a log line, a captured binary, a network flow.
+If you can't show the data source, you can't map the technique.
+
+### Failure mode 2: Sub-technique confusion
+
+Some techniques have sub-techniques (T1003.001 — LSASS Memory) and some don't. Use the most specific
+ID you can defend. If you saw LSASS specifically dumped, it's T1003.001, not T1003. If you saw
+credentials extracted but don't know how, it's T1003 (the parent).
+
+### Failure mode 3: Mapping intent instead of behavior
+
+"The attacker wanted to maintain persistence" is intent. "The attacker created a scheduled task
+named WindowsUpdater that runs at 0300" is behavior. ATT&CK maps the second. The first goes in your
+narrative summary, not the technique inventory.
+
+## Concurrent TTP awareness
+
+CLAUDE.md §8 rule 8 calls this out specifically:
+
+> Concurrent TTP awareness. Escalation, C2, credential theft, lateral movement, and persistence
+> almost never occur in isolation. Always hunt for co-occurring techniques.
+
+When you see T1021.001 (RDP lateral movement), look for the credential it required (T1003 or T1110).
+When you see T1059.001 (PowerShell), look for the obfuscation that hid it (T1027) and the persistence
+it dropped (T1053 / T1547 / T1543). Single-technique findings are usually incomplete investigations.
+
+## ICS ATT&CK is its own world
+
+If you do any OT work, ICS ATT&CK uses a separate technique set (T0xxx). Two consequences:
+
+1. Don't cross-list. "T1059 → T0855" is incoherent — they belong to different matrices.
+2. The Impact tactic looks completely different. Enterprise ATT&CK's Impact (T1485, T1486, etc.)
+   covers ransomware-style outcomes. ICS Impact covers Loss of Safety (T0880), Loss of View (T0829),
+   Manipulation of Control (T0831), Damage to Property (T0879), Loss of Availability (T0826) — the
+   physical outcomes.
+
+The toolkit's `sigma-rule-builder.sh` supports both namespaces. The ICS playbooks
+(`docs/ics-ir-reference.md`) keep them strictly separate.
+
+<Checkpoint
+  id="attack-framework"
+  questions={[
+    {
+      q: "You see Mimikatz dropped on a host and a memory dump file with 'lsass' in the name. What's the most defensible ATT&CK mapping?",
+      options: [
+        "T1003 — generic credential dumping",
+        "T1003.001 — LSASS Memory, since the evidence supports the LSASS-specific sub-technique",
+        "T1003.001 and T1003.002 and T1003.005 because Mimikatz can do all of them",
+        "T1059.001 — PowerShell, since Mimikatz can be loaded via PowerShell",
+      ],
+      answer: 1,
+      why: "Map the most specific technique you can defend from evidence. The lsass dump file supports T1003.001 specifically — and only that.",
+    },
+    {
+      q: "An ICS engagement finds a Modbus 'Force Listen Only Mode' command sent from an unexpected source. Which matrix and tactic?",
+      options: [
+        "Enterprise ATT&CK, Impact tactic",
+        "ICS ATT&CK, Impair Process Control tactic (T0855)",
+        "Enterprise ATT&CK, Command and Control",
+        "Both matrices in parallel",
+      ],
+      answer: 1,
+      why: "OT-protocol abuse lives in ICS ATT&CK. The Modbus Force Listen Only specifically maps to T0855 Unauthorized Command Message.",
+    },
+    {
+      q: "Your IR report has one mapped technique: T1059.001 (PowerShell). What's the most likely problem?",
+      options: [
+        "Nothing — single-technique findings are fine",
+        "You should add T1059 as well to be thorough",
+        "You probably haven't hunted for the co-occurring techniques — how did PowerShell get there, what did it do, what persisted",
+        "T1059.001 is deprecated",
+      ],
+      answer: 2,
+      why: "Concurrent TTP awareness — single-technique findings usually mean the investigation stopped early. PowerShell needed initial access, may have left persistence, probably touched credentials or C2.",
+    },
+  ]}
+/>
+
+## Reading list
+
+- The toolkit's `data/playbooks/playbook-decision-points.md` — every playbook lists the techniques it covers
+- `docs/soc-reference.md` §2.3 — hunt hypotheses (H-001 through H-064) all reference techniques
+- `data/references/aitm-defense-checklist.md` — AiTM detection by technique chain (T1539 → T1078.004 → T1556.006)
+
+Next lesson: scaffolding an engagement workspace with `engagement-init.sh`.

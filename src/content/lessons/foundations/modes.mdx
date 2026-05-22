@@ -1,0 +1,160 @@
+## The three modes
+
+The toolkit splits security work into three modes that don't overlap cleanly:
+
+```text
+MODE 1: THREAT HUNTING   → Find the adversary (active or passive)
+MODE 2: DEFENSE          → Detect, contain, and eradicate
+MODE 3: RESTORATION      → Recover, harden, and learn
+```
+
+Most security work belongs to exactly one. The exceptions — purple team, IR teams that also hunt —
+are exceptions, not the default.
+
+## Mode 1 — Threat hunting
+
+Assumes the adversary is already present and that automated detection missed them. The work is
+hypothesis-driven: pick a TTP you suspect is happening, design a query that would prove it,
+run it, interpret the result.
+
+Hunting splits into two halves:
+
+- **Passive hunt** — internal telemetry analysis, OSINT-based investigation of suspect indicators.
+  No target interaction.
+- **Active hunt** — direct interaction with the suspected target. Often the boundary between
+  hunting and pentesting blurs here. Both require written authorization.
+
+Hunt outputs are either:
+
+1. A negative result (the hypothesis was wrong — important data, document it),
+2. A finding that hands off to incident response (a true positive — Mode 2 begins), or
+3. A detection gap that needs a new rule (feeds into the SOC's rule library — Sigma rule).
+
+The toolkit's hypothesis catalog (`docs/soc-reference.md` §2, H-001 through H-064) is the
+prebuilt menu. Most engagements use 5-10 hypotheses, not all 64.
+
+## Mode 2 — Defense
+
+The detection-through-eradication lifecycle. Seven phases that apply to every incident:
+
+```text
+STEP 1: PREPARATION    → Tools, baselines, playbooks, authorities. Continuous.
+STEP 2: DETECTION & ID → Confirm true positive. Classify severity. Scope. Pick playbook.
+STEP 3: CONTAINMENT    → Stop spread. Preserve evidence first. Then isolate.
+STEP 4: ERADICATION    → Remove ALL malicious artifacts from ALL affected systems.
+STEP 5: RECOVERY       → Restore from clean state. Harden. Monitor (min 30 days).
+STEP 6: POST-INCIDENT  → Timeline. Root cause. ATT&CK mapping. Rule updates. AAR.
+STEP 7: REPORTING      → Runs PARALLEL to steps 2-6. Stakeholder notification.
+```
+
+The handoff inside this mode is the most overlooked part. SOC owns Step 1-2: detect, triage,
+confirm true positive, classify severity, pick a playbook. **SOC then hands off to IR.** IR
+owns Step 2-7 from the handoff forward: investigation, containment, eradication, recovery,
+post-incident analysis, reporting.
+
+The transition isn't ceremonial. The toolkit's `docs/ir-reference.md` is what IR drives off
+once they take the case. The SOC documentation (`docs/soc-reference.md`) is what gets you to
+the handoff. Different documents, different decision authority, different sign-off needs.
+
+## Mode 3 — Restoration
+
+Begins after eradication is confirmed and runs through validated return to operations. The
+work is unglamorous but critical:
+
+- Per-system restoration from a clean state (often rebuild, not cleanup)
+- Credential rotation (every account that touched an affected system)
+- Hardening pass (close the entry point, not just the symptom)
+- 30-day minimum enhanced monitoring (the attacker often comes back)
+- Detection rules derived from the incident (so the next attempt doesn't escape)
+- After-action report (AAR) for the people who weren't in the response room
+
+Restoration is the work most often skipped. The pressure to "get back to normal" beats the
+discipline to confirm "back to normal" actually means "the attacker is out." The toolkit's
+standing rule 10 addresses this directly:
+
+> Rebuild when in doubt. Manual cleanup has a higher miss rate than a clean rebuild.
+> Uncertainty about full attacker access resolves toward rebuild.
+
+## SOC vs. IR — who owns what
+
+| Decision                                              | SOC | IR  |
+|-------------------------------------------------------|-----|-----|
+| Triage alert, confirm true positive                   | ✓   |     |
+| Classify severity                                     | ✓   |     |
+| Pick playbook                                         | ✓   |     |
+| Authorize containment action                          |     | ✓   |
+| Initiate forensic acquisition                         |     | ✓   |
+| Notify legal / compliance / executives                |     | ✓   |
+| Authorize system rebuild                              |     | ✓   |
+| Authorize return to operations                        |     | ✓   |
+| Update detection rule library                         | ✓   | ✓ (jointly) |
+
+Full table: `data/playbooks/IR-Team-Entity-Reference.md`.
+
+The split exists because the skills don't fully overlap. A SOC analyst is fast and good at
+ruling out noise. An IR analyst is methodical and good at scoping a real incident. Asking
+the SOC analyst to also be the deciding authority on "rebuild this domain controller" is a
+recipe for either decision paralysis or a too-fast call.
+
+## When the modes blur
+
+Some scenarios genuinely cross modes:
+
+- **Active hunt → confirmed incident.** Hunt finds attacker. The hunter doesn't keep hunting —
+  they hand off to IR (Mode 1 → Mode 2). The hunt notes become the seed for the incident timeline.
+- **Pentest finds a real compromise.** Pentester finds something that looks like a real attacker,
+  not your test artifacts. Stop. Notify the client. Mode 1 → Mode 2, but the pentester isn't
+  the incident handler — they're the witness.
+- **Tabletop / purple team.** Both modes simulated. The point is the handoff drill, not the
+  technical work.
+
+The mode you're in determines the playbook you use, the authority you defer to, and the file
+layout the toolkit expects.
+
+<Checkpoint
+  id="modes"
+  questions={[
+    {
+      q: "A SOC analyst correlates four alerts and concludes the activity is real attacker behavior. What happens next?",
+      options: [
+        "The analyst begins containment — they confirmed the true positive",
+        "The analyst hands off to IR; IR drives containment and downstream steps",
+        "The analyst opens a hunt to find more attacker activity",
+        "The analyst escalates to the CISO",
+      ],
+      answer: 1,
+      why: "SOC owns through confirmed true positive. The toolkit's playbook PB-001 splits explicitly: SOC triage → IR investigation. Different decision authority needed for containment.",
+    },
+    {
+      q: "After eradication, the team wants to bring systems back online. What's required by Mode 3?",
+      options: [
+        "Restore from backup and resume operations",
+        "Restore from clean state, rotate all credentials that touched affected systems, harden the entry point, and run minimum 30 days enhanced monitoring",
+        "Run an AV scan and resume operations",
+        "Wait 24 hours and resume operations",
+      ],
+      answer: 1,
+      why: "Restoration is the full sequence, not just 'recover.' Skipping any of these is how incidents recur.",
+    },
+    {
+      q: "A pentester finds evidence of an existing compromise — not their tooling — during an engagement. Correct response?",
+      options: [
+        "Document it in the report and continue testing",
+        "Continue testing; the compromise is the client's problem",
+        "Stop active testing, notify the client immediately, transition becomes Mode 2 with the client's IR team driving",
+        "Try to remediate the compromise as part of the engagement",
+      ],
+      answer: 2,
+      why: "A live incident overrides the pentest scope. The pentester is a witness, not the IR lead. Standing rule 1 covers the authorization question — testing a live IR scene is not in the original ROE.",
+    },
+  ]}
+/>
+
+## What's next in the curriculum
+
+You've finished the foundations track. From here you can branch:
+
+- **Defender / SOC** path: jump to Module 07 (SOC Detection & Hunt Hypotheses) and Module 08 (IR Core).
+- **Offensive / pentest** path: Module 02 (Passive Recon) → Module 03 (Active Scanning) → Module 04 (Web App).
+- **OT / ICS** path: Module 09. Read Module 08 (IR Core) first if you haven't.
+- **Reporting / management** path: Module 10. Useful even if you don't do hands-on work.

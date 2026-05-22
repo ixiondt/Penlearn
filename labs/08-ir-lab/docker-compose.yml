@@ -1,0 +1,54 @@
+name: penlearn-ir
+
+# IR practice lab — pre-compromised Linux host with persistence, lateral
+# movement artifacts, and a captured C2 PCAP to analyze. Single container
+# keeps the lab portable; the Windows side ships as a separate Vagrant box
+# if you want the full experience (see labs/08-ir-lab/vagrant/).
+
+services:
+  compromised-ubuntu:
+    image: ubuntu:22.04
+    container_name: penlearn-ir-ubuntu
+    hostname: compromised-ubuntu
+    tty: true
+    stdin_open: true
+    privileged: false
+    cap_add:
+      - SYS_PTRACE   # for forensic tooling to inspect processes
+    volumes:
+      - ./targets/setup-compromise.sh:/setup.sh:ro
+      - ./targets/artifacts:/seeded:ro
+      - ir-data:/data
+    command:
+      - bash
+      - -c
+      - "apt-get update -qq && apt-get install -y -qq cron systemd-sysv openssh-server net-tools procps && bash /setup.sh && tail -f /dev/null"
+    networks:
+      ir:
+        ipv4_address: 10.90.0.10
+    mem_limit: 1g
+    cpus: '1.0'
+
+  evidence-vault:
+    image: alpine:3.20
+    container_name: penlearn-ir-vault
+    volumes:
+      - evidence:/evidence
+    command: ["sleep", "infinity"]
+    networks:
+      ir:
+        ipv4_address: 10.90.0.20
+    mem_limit: 128m
+    cpus: '0.2'
+
+networks:
+  ir:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.90.0.0/24
+
+volumes:
+  ir-data:
+  evidence:

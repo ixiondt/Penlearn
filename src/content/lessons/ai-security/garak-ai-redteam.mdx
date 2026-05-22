@@ -1,0 +1,187 @@
+## garak — "nmap for LLMs"
+
+[garak](https://github.com/NVIDIA/garak) is NVIDIA's open-source LLM vulnerability
+scanner. It ships 150+ attacks across 3,000+ prompt templates, organized as
+**probes** (assemble and send adversarial prompts) and **detectors** (decide
+whether the response shows the weakness). In one run garak picks probes +
+detectors, drives a **generator** (the model backend), and an **evaluator**
+scores the results into a `report.jsonl`.
+
+The toolkit doesn't reinvent any of that. `ai-redteam.sh` wraps garak so it lives
+inside the engagement workflow: authorization gate, output routing into the
+engagement tree, and normalization into the same findings JSON every other
+scanner produces.
+
+## Start safe: list and dry-run
+
+`--list-probes` and `--dry-run` work *without* garak installed and without
+touching a target — use them to plan:
+
+```bash
+# What can garak test?
+./scripts/ai-redteam.sh --list-probes
+
+# Preview the exact garak command + output path — no execution
+./scripts/ai-redteam.sh --model-type openai --model-name gpt-4o-mini --dry-run
+```
+
+The dry-run prints the resolved `garak ...` invocation. Read it before you spend
+API calls.
+
+## The default probe set is curated
+
+`--probes all` is the garak habit, but it is slow and (against a hosted model)
+expensive. `ai-redteam.sh` defaults to a curated quick set that covers the OWASP
+LLM directions garak handles well:
+
+```text
+promptinject,dan,encoding,leakreplay,xss,malwaregen,packagehallucination
+```
+
+Override it explicitly, or opt into everything with `--full`:
+
+```bash
+# Curated quick set (default)
+./scripts/ai-redteam.sh --model-type ollama --model-name llama3 --engagement acme-q2
+
+# Just two probe families
+./scripts/ai-redteam.sh --model-type ollama --model-name llama3 --probes promptinject,dan
+
+# Everything — slow + expensive
+./scripts/ai-redteam.sh --model-type ollama --model-name llama3 --full --engagement acme-q2
+```
+
+## The two gates
+
+When you actually run (no `--dry-run`), the wrapper:
+
+1. Warns about provider key presence (e.g. `OPENAI_API_KEY`) — a warning, not a
+   block; garak validates definitively.
+2. Prints the target, probes, and generation count, then requires an
+   **authorization + ToS confirmation** before launching. This is the same
+   `confirm_action` gate every active toolkit script uses.
+
+```text
+[!] About to run an ACTIVE LLM red-team scan:
+[!]   Target:      ollama/llama3
+[!]   Probes:      promptinject,dan,encoding,leakreplay,xss,malwaregen,packagehallucination
+[!]   Verify written authorization AND provider ToS permit this testing.
+[?] Run garak against ollama/llama3 ... Proceed? (yes/NO):
+```
+
+## What lands on disk
+
+With `--engagement acme-q2`, output routes to
+`~/assessments/acme-q2/04-vulnerabilities/garak-<timestamp>/`:
+
+```text
+garak.report.jsonl   raw garak report (attempts + eval entries)
+garak.report.html    garak's own redesigned HTML report (v0.14)
+garak.hitlog.jsonl   per-hit detail (when produced)
+findings.json        normalized findings — parsers/garak.py output
+summary.txt          run header + severity tally
+```
+
+The wrapper auto-runs `import-output.sh --tool garak`, so `findings.json` appears
+without a second command. `--to-db` also pushes into scan-db.
+
+## How a garak result becomes a finding
+
+`parsers/garak.py` reads the `eval` entries — one per (probe, detector), each with
+`passed`/`total` counts — and emits a finding **only when at least one attempt
+failed** (i.e. `failures = total - passed > 0`; a model that resisted every attempt
+is not a finding). Each finding is:
+
+- **Tagged** with the OWASP LLM Top 10 category and the MITRE ATLAS technique for
+  that probe family (e.g. `dan` → `LLM01` + `AML.T0054`). ATLAS goes in its own
+  field, never in `attck`, so it doesn't pollute the ATT&CK matrix.
+- **Severity-scaled** by failure rate: a per-family base severity, bumped up when
+  the failure rate ≥ 50% and dropped when it's under 5%.
+
+```json
+{
+  "severity": "CRITICAL",
+  "title": "garak dan.Dan_11_0: 5/5 attempts elicited unsafe behavior (100.0%)",
+  "owasp": "LLM01",
+  "atlas": "AML.T0054",
+  "affected": "ollama/llama3",
+  "evidence": "probe=dan.Dan_11_0 detector=dan.DAN passed=0/5 failure_rate=100.0%",
+  "source": "garak",
+  "tags": ["llm", "ai-redteam", "garak:dan", "AML.T0054"]
+}
+```
+
+## Into the standard pipeline
+
+Because the output is ordinary findings JSON, every downstream tool just works:
+
+```bash
+python3 scripts/risk-scoring.py \
+  --findings ~/assessments/acme-q2/04-vulnerabilities/garak-*/findings.json \
+  --output scored.json
+
+# DOCX + interactive HTML report (HTML keeps an at-a-glance severity chart
+# and expandable per-finding detail)
+python3 scripts/report-generator.py --findings scored.json --output ai-report --format both
+```
+
+garak's own `garak.report.html` is richer for *interactive triage* of individual
+prompts — the toolkit preserves it alongside `findings.json`. Use garak's HTML to
+dig into specific hits; use the toolkit report to put AI findings in the same
+deliverable as the network/web findings.
+
+## What this does NOT cover
+
+garak tests model behavior. It does **not** test RAG document poisoning,
+tool/function-calling chains, cross-tenant retrieval, or output sinks in the host
+app. Those stay manual — `data/references/ai-security-checklist.md` §3, §4, §8.
+The next lesson maps exactly where the line falls.
+
+<Checkpoint
+  id="garak-ai-redteam"
+  questions={[
+    {
+      q: "Why does ai-redteam.sh default to a curated probe set instead of garak's --probes all?",
+      options: [
+        "all is broken in garak",
+        "The quick set covers the high-value OWASP LLM directions without the time and API cost of running every probe",
+        "all requires a license",
+        "There is no difference",
+      ],
+      answer: 1,
+      why: "--probes all is slow and, against a hosted model, expensive. The curated set front-loads the directions garak handles well; --full opts into everything when you want it.",
+    },
+    {
+      q: "parsers/garak.py reads a probe's eval entry showing passed=10/10. What does it emit?",
+      options: [
+        "A CRITICAL finding",
+        "Nothing — zero failures means the model resisted every attempt, so it's not a finding",
+        "An INFO finding for every probe regardless",
+        "It errors out",
+      ],
+      answer: 1,
+      why: "A finding is emitted only when failures = total - passed > 0. passed=10/10 means the model passed every attempt — no weakness elicited, no finding.",
+    },
+    {
+      q: "Where does the parser put the MITRE ATLAS technique ID, and why not in the attck field?",
+      options: [
+        "In attck, like everything else",
+        "In a dedicated atlas field, so ATLAS IDs don't pollute the ATT&CK technique matrix/reference",
+        "It discards ATLAS IDs",
+        "In the title only",
+      ],
+      answer: 1,
+      why: "ATLAS is a separate adversarial-ML taxonomy. Mixing AML.Txxxx into attck would corrupt the ATT&CK coverage matrix, so it gets its own field plus a tag.",
+    },
+  ]}
+/>
+
+## Lab
+
+Lab `09-ai-redteam` runs this end-to-end against a **local** Ollama model and a
+deliberately leaky chat app — no provider ToS, no API spend.
+
+## Next
+
+Next lesson: the taxonomies — OWASP LLM Top 10 and MITRE ATLAS — and where garak's
+coverage ends.

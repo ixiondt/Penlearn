@@ -1,0 +1,162 @@
+## The priority that overrides everything
+
+OT/ICS work has a priority stack that defenders coming from IT must internalize before
+touching anything:
+
+```text
+1. Human safety       — Always. No exceptions.
+2. Process safety     — The physical process operating within design limits.
+3. Mission            — The plant produces what it's supposed to.
+4. Investigation      — Finding the attacker.
+```
+
+Investigation comes fourth. Not first, not third — fourth. The pressure during an IT
+incident to "contain the threat" can kill people in an OT context. A firewall ACL that
+isolates a "compromised" RTU can take down process safety. A "harmless" port scan can
+crash a 20-year-old PLC. The defender's discipline is to recognize that the attacker
+caused the incident, but a clumsy responder can cause the casualties.
+
+## The Purdue model in one diagram
+
+```text
+Level 5 — Enterprise / Corporate IT      (your normal email, file servers, etc.)
+─────────────────────────────────────── DMZ ────────────────────────────────────
+Level 4 — Site Business Planning         (ERP, MES — still "IT-shaped")
+─────────────────────────────────── IDMZ (firewall) ────────────────────────────
+Level 3 — Operations Management          (historian, engineering workstations)
+─────────────────────────────────────────────────────────────────────────────────
+Level 2 — Supervisory Control            (HMIs, SCADA servers)
+Level 1 — Basic Control                  (PLCs, RTUs, DCS controllers)
+Level 0 — Physical Process               (sensors, actuators, valves, motors)
+```
+
+Levels 0-3 are the OT side. Level 3.5 (the IDMZ) is the only safe traversal point.
+Levels 0-1 are physically wired to the plant — a misbehavior there has physical
+consequences in milliseconds.
+
+Defenders coming from IT often want to treat the OT network as a flat zone. It isn't.
+Each level has different containment rules, different acquisition rules, and different
+authorization gates.
+
+## The three-stakeholder gate
+
+Any OT containment action requires three approvals — not as a process formality, but
+because no one stakeholder has the knowledge to make the call safely:
+
+1. **IR Lead** — owns incident response decisions
+2. **Network Operations** — knows the network topology, what depends on what
+3. **Process Engineer** — knows whether the proposed isolation is physically safe
+
+The toolkit's `scripts/ics-containment.sh` enforces this. `--execute` is gated behind
+explicit confirmation from all three roles. Generate-only mode (the default) is for
+drafting the proposed action and circulating it for review.
+
+```bash
+# Draft the action — generates a script with the firewall commands, doesn't run them
+./scripts/ics-containment.sh zone-isolate --zone 3 --firewall-ip 10.0.0.1
+
+# Run it — requires IR Lead + NetO + Process Engineer confirmations interactively
+./scripts/ics-containment.sh zone-isolate --zone 3 --firewall-ip 10.0.0.1 --execute
+```
+
+The gate is friction by design. The gate is the safety mechanism.
+
+## Why active scanning is forbidden in OT
+
+A standard nmap scan against a PLC can:
+
+- Crash the PLC entirely (old firmware, fragile TCP stack)
+- Send the PLC into a fault state requiring physical reset
+- Trigger watchdog timers that take a plant offline
+- Force a hot standby failover that causes a brief loss of control
+
+Nmap's `-sV` and `-O` flags are particularly dangerous in OT. Any service detection
+that sends unusual protocol traffic can confuse a PLC. The version of `nmap` doesn't
+matter — the PLC is what's fragile.
+
+The defensive equivalent is **passive analysis**. Capture a PCAP, analyze it with
+Zeek's ICS analyzers and tshark's OT dissectors. The toolkit's
+`scripts/ics-protocol-analysis.sh` does exactly this — Modbus, DNP3, EtherNet/IP,
+OPC UA, S7comm, BACnet, IEC-104 — without ever sending a packet.
+
+## Evidence acquisition in OT
+
+The volatile-first order from IT still applies, but with safety overrides:
+
+- **Memory acquisition on an engineering workstation** — usually fine. Workstations
+  are Windows or Linux, not protocol-specific.
+- **Memory acquisition on an HMI** — proceed with caution. HMIs are often tightly
+  coupled to a SCADA server. The acquisition tool itself may interfere.
+- **Memory acquisition on a PLC** — almost never. The PLC's vendor-specific tooling
+  is the right path, and only with vendor support engaged.
+- **PCAP capture** — almost always safe and the highest-value OT artifact. Span port
+  or network tap. The toolkit's `scripts/ics-forensics-collect.sh` walks this by zone.
+
+If you can't safely acquire evidence at a particular level, that's an acquisition
+gap to document — not a license to skip directly to containment.
+
+## The standing rules that map to OT
+
+From CLAUDE.md §8:
+
+> 6. OT/ICS isolation requires NetO alignment and business authority approval. Process
+>    engineers confirm physical safety. All three stakeholders required — this can be
+>    one coordinated step but cannot proceed without all three. No active scanning in
+>    OT networks.
+
+> 10. Rebuild when in doubt. Manual cleanup has a higher miss rate than a clean rebuild.
+>     Uncertainty about full attacker access resolves toward rebuild.
+
+The "rebuild when in doubt" rule lands differently in OT. A controller in a production
+line isn't a laptop you can swap. Rebuild may mean staged restoration during a planned
+downtime window. The IR plan has to account for this — you may operate in a degraded
+state for weeks while restoration is scheduled.
+
+<Checkpoint
+  id="purdue-safety"
+  questions={[
+    {
+      q: "An IT-trained responder wants to nmap an HMI to confirm it's online. Acceptable?",
+      options: [
+        "Yes — nmap is a standard tool",
+        "Yes — but only with the -sn flag",
+        "No — active scanning in OT can crash field devices. Passive analysis (PCAP + Zeek/tshark) is the alternative",
+        "Only if the scan is rate-limited",
+      ],
+      answer: 2,
+      why: "The standing rule prohibits active scanning in OT networks. Vendor scanning kits, vendor support, or passive analysis are the only paths.",
+    },
+    {
+      q: "A SCADA workstation appears compromised. The IR lead wants to isolate it via firewall ACL immediately. Correct?",
+      options: [
+        "Yes — speed matters in IR",
+        "No — three-stakeholder gate applies. NetO must confirm topology impact and process engineer must confirm safety before --execute",
+        "Yes, if the IR lead is senior enough",
+        "Only outside business hours",
+      ],
+      answer: 1,
+      why: "Three-stakeholder gate (IR Lead + NetO + Process Engineer) is non-optional for OT containment. The toolkit's ics-containment.sh enforces this.",
+    },
+    {
+      q: "Why does investigation come fourth in the OT priority stack?",
+      options: [
+        "OT incidents are usually false positives",
+        "Because clumsy investigation can compromise human safety, process safety, or mission — all of which outrank the value of finding the attacker faster",
+        "Because OT investigators are usually slower",
+        "Because attackers can't reach Level 0-1 anyway",
+      ],
+      answer: 1,
+      why: "An over-eager responder in OT can cause the casualties the attacker only threatened. The discipline is that human safety, process safety, and mission availability outrank investigation speed.",
+    },
+  ]}
+/>
+
+## Reading list
+
+- `docs/ics-ir-reference.md` — full ICS IR reference: kill chain, PB-015a-f sub-playbooks,
+  containment decision tree, OT forensics, recovery, hardening
+- `data/templates/ics-incident-intake.md` — intake template that captures the right
+  safety + ownership context
+- `data/templates/ics-attck-mapping-template.md` — ICS ATT&CK (T0xxx) mapping template
+
+Next lesson: passive OT protocol analysis with Zeek + tshark.

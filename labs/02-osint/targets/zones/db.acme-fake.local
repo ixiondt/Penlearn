@@ -1,0 +1,22 @@
+$TTL 3600
+@   IN  SOA ns1.acme-fake.local. secops.acme-fake.local. (
+        2026031801  ; serial
+        7200        ; refresh
+        3600        ; retry
+        1209600     ; expire
+        3600        ; minimum
+)
+    IN  NS  ns1.acme-fake.local.
+    IN  A   10.50.0.20
+    IN  MX  10  mail.acme-fake.local.
+    IN  TXT "v=spf1 ip4:10.50.0.0/24 -all"
+    IN  TXT "admin=admin@acme-fake.local"
+
+ns1         IN  A   10.50.0.10
+www         IN  A   10.50.0.20
+api         IN  A   10.50.0.21
+vpn         IN  A   10.50.0.22
+staging     IN  A   10.50.0.23
+dev-internal IN A   10.50.0.24
+mail        IN  A   10.50.0.25
+historian   IN  A   10.50.0.30

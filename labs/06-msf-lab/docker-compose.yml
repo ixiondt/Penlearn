@@ -1,0 +1,65 @@
+name: penlearn-msf
+
+# Metasploit practice lab — Metasploitable3 (well-known vulnerable Ubuntu image)
+# plus a small "internal" target reachable only via a second network — for
+# practicing the pivot recipes.
+#
+# Both targets isolated; toolkit attaches via --network penlearn-msf_extnet.
+
+services:
+  # Public-facing target — Metasploitable2 (Metasploitable3 doesn't run cleanly
+  # under docker; we use ms2 for the lab and note the limitations in the README)
+  vuln-target:
+    image: tleemcjr/metasploitable2:latest
+    container_name: penlearn-msf-target
+    hostname: target.lab.local
+    networks:
+      extnet:
+        ipv4_address: 10.66.0.20
+      intnet:
+        ipv4_address: 192.168.50.20
+    mem_limit: 1g
+    cpus: '1.0'
+
+  # Internal target — reachable only from vuln-target (for pivot practice)
+  internal-target:
+    image: vulnerables/web-dvwa:latest
+    container_name: penlearn-msf-internal
+    hostname: internal.lab.local
+    networks:
+      intnet:
+        ipv4_address: 192.168.50.30
+    mem_limit: 512m
+    cpus: '0.5'
+
+  # Attack box — toolkit-equipped, has route to extnet only
+  attacker:
+    image: secops-toolkit:latest
+    container_name: penlearn-msf-attacker
+    hostname: attacker.lab.local
+    tty: true
+    stdin_open: true
+    working_dir: /engagements
+    volumes:
+      - ./work:/engagements
+    networks:
+      extnet:
+        ipv4_address: 10.66.0.10
+    mem_limit: 2g
+    cpus: '2.0'
+
+networks:
+  # External network — attacker reaches target here
+  extnet:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.66.0.0/24
+  # Internal network — only target + internal-target; attacker must pivot
+  intnet:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 192.168.50.0/24

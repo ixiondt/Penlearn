@@ -1,0 +1,181 @@
+## Evidence before remediation. Always.
+
+The toolkit's standing rule 4 is the load-bearing rule of every IR engagement:
+
+> Evidence before remediation. Always. No exceptions.
+
+The pressure during an incident is to act — kill the process, reset the password, block the
+IP, reimage the host. Every one of those actions destroys evidence. A forensic acquisition
+that takes 30 minutes preserves the timeline you need to answer "what did they take" and
+"how did they get in." Skipping it because "we need to contain now" is a false economy —
+you'll spend the next two weeks guessing at questions you could have answered cleanly.
+
+`scripts/forensics-collect.sh` is the toolkit's acquisition workflow. It implements playbook
+PB-016 and produces a chain-of-custody hashed bundle suitable for both internal investigation
+and (where applicable) legal handling.
+
+## Volatile-first order of collection
+
+The rule: collect data in order of how fast it disappears.
+
+1. **CPU registers / cache** — gone the instant the system halts. Realistically uncollectable.
+2. **RAM** — gone on reboot. Memory acquisition is the first real step. Linux: `avml`. Windows:
+   FTK Imager, WinPMEM, or DumpIt.
+3. **Network connections / ARP / routing table** — survive in RAM. Capture before any change
+   to network state.
+4. **Running processes / open files / kernel modules** — RAM-derived but worth a separate snapshot.
+5. **Disk** — survives reboots. Acquire after volatile state. Either a full image or targeted
+   artifact collection.
+6. **Logs and remote artifacts** — most durable. Collect last.
+7. **Backup tapes / cold storage** — durable but slow to access.
+
+`forensics-collect.sh` runs in this order. If you have to skip a step (memory acquisition on a
+system you don't have admin on, for instance), document the skip.
+
+## Local vs. remote collection
+
+```bash
+# Local — runs on the box itself
+./scripts/forensics-collect.sh --incident-id INC-2026-001
+
+# Remote — over SSH to a Linux host
+./scripts/forensics-collect.sh --remote admin@server --incident-id INC-2026-001
+```
+
+The remote mode requires SSH key auth and sudo on the target. The toolkit's `common.sh`
+handles the SSH wrapper. Output lands in `~/incidents/INC-2026-001/07-evidence/`.
+
+For Windows boxes, the script generates a PowerShell collector you run via WinRM, RDP, or
+copy-and-run locally. The volatile-first sequence is the same.
+
+## Chain-of-custody hashing
+
+Every collected artifact is hashed (SHA-256) at acquisition time. The hash list lives in:
+
+```text
+~/incidents/INC-2026-001/07-evidence/CHAIN-OF-CUSTODY.txt
+```
+
+With entries like:
+
+```text
+2026-03-05T14:32:01Z  acquired  memory.lime      a3f8...  acquired-by=jane@corp via avml on prod-web-01
+2026-03-05T14:35:22Z  acquired  proc-list.txt    b2e1...  acquired-by=jane@corp via ssh
+2026-03-05T14:36:45Z  archived  evidence.tar.gz  c9d4...  bundled and moved to evidence vault
+```
+
+Two operational reasons for this:
+
+1. **Tampering detection.** If the evidence bundle is later disputed or you handed it to a
+   third party, the hash chain proves it hasn't been modified.
+2. **Self-confidence.** Six months later, when you're rebuilding a timeline from the evidence,
+   the hashes confirm you're looking at the same files you collected, not a partially-overwritten
+   copy.
+
+## What gets collected
+
+Default Linux artifact list (extended from PB-016 by the CCTC-derived enhancements):
+
+- Memory image (`avml`)
+- Process list with full command line, working dir, environment, open files
+- Network state (`ss -tunap`, `netstat -anp`, `arp -an`, routing table, listening ports)
+- Loaded kernel modules
+- User accounts, sudoers, SSH authorized_keys (every user)
+- Cron jobs (user + system + every cron.d)
+- systemd services + unit files
+- `/etc/passwd`, `/etc/shadow`, `/etc/group`, `/etc/hosts`, resolv.conf
+- Auth log, syslog, kern.log, btmp, wtmp, journal (last 7 days)
+- Bash/zsh history for every user (often the smoking gun)
+- World-writable directories, SUID/SGID inventory, capabilities, sudo config
+- Last 100 commands per user
+- Recently modified files (mtime + ctime, last 7 days)
+
+Windows extension adds (also CCTC):
+
+- PowerShell command history (PSReadLine)
+- Recycle Bin contents
+- BAM registry (Background Activity Moderator — what ran when)
+- Alternate Data Streams (ADS)
+- Prefetch (last 64 executables)
+- Unquoted service paths (for privesc review)
+- Security events 4720 (account created), 4672 (special priv assigned),
+  7045 (service installed), 4688 (process create), 1102 (audit log cleared)
+
+The list keeps growing. Read the script header for the current inventory.
+
+## What to do after acquisition
+
+In order:
+
+1. **Verify the bundle.** Re-hash and compare to the chain-of-custody file. If any hash mismatches, stop and investigate why.
+2. **Move to evidence vault.** Don't analyze on the original. Copy the bundle to a working
+   directory and analyze the copy.
+3. **Begin timeline merge.** `scripts/timeline-merge.py` ingests auth logs, proxy logs, syslog,
+   etc. and produces a unified timeline.
+4. **Run persistence audit.** `scripts/persistence-audit.sh` against the collected artifacts
+   (or, if you're still investigating live, against the host).
+5. **Map to ATT&CK.** Write the inventory in the four-column format from Module 01 Lesson 2.
+
+Containment comes *after* this. The point of acquiring first is that containment may destroy
+the very evidence you need.
+
+## Exceptions — when do you skip acquisition?
+
+A short list:
+
+- **Active exfiltration in progress.** Stop the bleeding first. Memory acquisition while
+  gigabytes are being shipped out is the wrong order. Block the egress, then acquire.
+- **Host actively used to attack other hosts.** Same logic — disconnect the network first,
+  acquire after.
+- **Safety risk (OT / medical / physical control systems).** Process safety always wins.
+  ICS playbooks (`docs/ics-ir-reference.md`) cover the safe-acquisition variant.
+
+Document every exception in the incident log with the timestamp, the action, and the
+authority who approved skipping.
+
+<Checkpoint
+  id="forensics-collect"
+  questions={[
+    {
+      q: "An alert fires. Your first instinct is to kill the suspicious process. Why is this wrong?",
+      options: [
+        "It isn't wrong — speed matters",
+        "Killing the process destroys process tree, open files, network state, and memory residue you need for investigation",
+        "It might tip off the attacker",
+        "It violates the standing rule of authorization",
+      ],
+      answer: 1,
+      why: "Evidence before remediation. The process state is volatile — once it's gone, you can't reconstruct what it was doing.",
+    },
+    {
+      q: "You're acquiring forensics on a Linux host. What goes first?",
+      options: [
+        "Disk image",
+        "Auth log",
+        "Memory image, network state, process list, then disk — volatile to durable",
+        "User home directory archive",
+      ],
+      answer: 2,
+      why: "Volatile-first. Memory and network state disappear instantly on power-off or network change; disk survives.",
+    },
+    {
+      q: "Why does every artifact get SHA-256 hashed at acquisition time?",
+      options: [
+        "It speeds up analysis",
+        "It's required by GDPR",
+        "Chain-of-custody — proves the evidence hasn't been tampered with between acquisition and analysis",
+        "It enables full-text search",
+      ],
+      answer: 2,
+      why: "Hashing at acquisition time creates a known-good reference. Any later modification is detectable. Required for any evidence you might hand to legal, but useful even for internal investigations.",
+    },
+  ]}
+/>
+
+## Lab
+
+Lab `08-ir-lab` ships a pre-compromised Ubuntu + Windows pair with persistence and lateral
+movement artifacts to discover. Use it to practice the acquisition → persistence-audit →
+timeline-merge sequence end-to-end.
+
+Next lesson: persistence audit — what to look for and where.

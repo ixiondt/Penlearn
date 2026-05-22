@@ -1,0 +1,190 @@
+## Why passive first
+
+Active recon leaves logs. Passive recon doesn't — and "passive" is broader than people think.
+You can build a remarkably complete picture of a target from data that already exists in
+public databases: WHOIS, certificate transparency logs, passive DNS, ASN registries, breach
+data dumps, Shodan/Censys snapshots, GitHub gists, archived web pages.
+
+The advantage isn't only operational stealth. It's that passive recon costs nothing in
+authorization paperwork and surfaces information the target probably doesn't realize is
+out there. That asymmetry is the entire point.
+
+`scripts/osint-passive.sh` is the toolkit's aggregator. It chains a dozen passive sources
+into a single output bundle.
+
+## What it pulls
+
+```bash
+./scripts/osint-passive.sh example.com --engagement acme-q2
+```
+
+Produces (under `~/assessments/acme-q2/01-passive-recon/osint/`):
+
+- **WHOIS / RDAP** — registrant, registrar, name servers, creation date, recent changes
+- **theHarvester** — emails, subdomains, hosts from search engines + breach databases
+- **Certificate transparency** — every certificate ever issued for the domain or its subdomains via crt.sh
+- **Passive DNS** — historical A/AAAA records (via SecurityTrails if you have an API key)
+- **ASN / BGP** — Team Cymru lookup, RIPEstat data: who owns the network, what ranges they announce
+- **Favicon hash** — mmh3 hash of the favicon, used to find related infrastructure on Shodan
+- **Tech stack detection** — 15 framework signatures (X-Powered-By, common JS, server headers if any cached)
+- **Breach data URL generator** — pre-built search URLs for 8 services (HIBP, DeHashed, IntelX, etc.)
+
+Output is structured. Pipe into `import-output.sh` if you want it normalized for `scan-db.py`.
+
+## The high-value sources, ranked
+
+If you only had time for three, in order:
+
+### 1. Certificate transparency (crt.sh)
+
+CT logs are the single richest passive source for most targets. Every TLS cert issued by a
+participating CA shows up here, and most CAs participate. You see:
+
+- Every subdomain that's ever had a cert (`*.dev.example.com`, `vpn.example.com`, `internal-staging.example.com`)
+- The certs themselves, including extensions, validity windows, and issuer
+- SAN entries — one cert can list dozens of names
+
+Subdomain enumeration via CT typically beats every other passive technique combined for completeness.
+The downside is noise — old, expired, internal-only certs from years ago. Filter by validity window
+when it matters.
+
+### 2. WHOIS / RDAP + ASN data
+
+WHOIS tells you who registered the domain and when. ASN data tells you who owns the IPs the domain
+resolves to. The intersection — a small ASN owned by the same registrant as the domain — is gold,
+because that ASN usually lists every IP range the target controls.
+
+```bash
+whois example.com                                    # registrant
+dig +short example.com                               # resolve
+whois -h whois.cymru.com " -v 93.184.216.34"         # ASN for that IP
+whois AS15133                                        # what else does that ASN own
+```
+
+This sequence — domain → IP → ASN → other IPs — finds infrastructure that doesn't share a
+domain name. Particularly useful when the target uses split-brand domains.
+
+### 3. theHarvester
+
+Pulls emails and subdomains from search engine indexes, breach databases, and certificate
+transparency. Good as a sanity check against crt.sh and as a fast way to find user email
+addresses for downstream phishing context (defensive only — see authorization rules).
+
+```bash
+theHarvester -d example.com -b all -l 500
+```
+
+The `-b all` flag uses every configured source. Some require API keys; the script logs which
+sources returned data so you know what you got.
+
+## Favicon hashing — the underrated technique
+
+`mmh3` hashes the favicon. Shodan indexes the same hash. You can search Shodan for
+"every IP serving the same favicon as example.com" — which often finds backup/staging
+infrastructure, dev environments, mistakenly-public admin panels, and infrastructure that
+shares branding but not domain naming.
+
+```python
+import mmh3, requests, codecs
+fav = requests.get("https://example.com/favicon.ico").content
+b64 = codecs.encode(fav, "base64")
+print(mmh3.hash(b64))
+# Then: search Shodan for http.favicon.hash:<that number>
+```
+
+`osint-passive.sh` automates this and gives you the Shodan search URL.
+
+## ASN walks for infrastructure clustering
+
+Once you know the ASN, query the prefixes:
+
+```bash
+# All prefixes announced by the ASN
+whois -h whois.radb.net "!gAS15133"
+
+# Or RIPEstat (no auth, public)
+curl -s "https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS15133"
+```
+
+For a small target with a single ASN, this is a complete inventory of the network. For a
+target on shared hosting (Cloudflare, AWS), the ASN belongs to the provider — much less useful.
+
+## What you don't do passively
+
+Don't:
+
+- Resolve DNS through the *target's* authoritative servers (`dig @ns1.example.com`) — that
+  hits their infrastructure. Use a public recursor instead.
+- Send any HTTP request to the target — even a HEAD. Use cached snapshots from archive.org
+  or Shodan/Censys, or wait until you have authorization.
+- Run subdomain brute-forcing — even "passive" wordlist tools that query DNS create logs
+  if the target inspects their resolvers.
+
+When in doubt, see standing rule 1: when uncertain, treat as the higher severity. Treat as active.
+
+## The output bundle
+
+`osint-passive.sh` writes a structured set of files. Walk through them in order:
+
+```text
+01-passive-recon/osint/
+├── whois.txt              # WHOIS + RDAP raw
+├── dns.txt                # Public resolver answers
+├── asn.txt                # ASN + prefixes
+├── theharvester.json      # Emails, subdomains, hosts
+├── crtsh.json             # CT log entries
+├── favicon-shodan.txt     # Hash + pre-built Shodan URL
+├── tech-stack.txt         # Framework signatures
+├── breach-urls.txt        # Pre-built breach-data search URLs
+└── summary.md             # Inventory of what was collected, with timings
+```
+
+The `summary.md` is what gets read by the next analyst on the engagement. Always check
+it before declaring passive recon "done."
+
+<Checkpoint
+  id="osint-aggregation"
+  questions={[
+    {
+      q: "You need a fast, high-completeness subdomain list. Which passive source is usually the strongest?",
+      options: [
+        "WHOIS",
+        "Certificate transparency logs (crt.sh)",
+        "theHarvester with -b bing",
+        "DNS zone transfer",
+      ],
+      answer: 1,
+      why: "CT logs index every cert ever issued; one cert often lists dozens of subdomains in its SAN. Zone transfers are active, not passive — and usually blocked anyway.",
+    },
+    {
+      q: "You found the target's ASN. Why does this matter?",
+      options: [
+        "It lets you bypass their WAF",
+        "It tells you every IP range they announce, which often includes infrastructure that doesn't share their domain name",
+        "It's required for nmap to work",
+        "It identifies their cloud provider only",
+      ],
+      answer: 1,
+      why: "ASN-level enumeration finds split-brand infrastructure. The domain you have may resolve to one /24, but the ASN may announce 20 more.",
+    },
+    {
+      q: "Favicon hashing as a passive technique is most useful for…",
+      options: [
+        "Detecting WAFs",
+        "Brute-forcing logins",
+        "Finding related infrastructure (staging, dev, backup) that shares the same favicon and would otherwise be hidden",
+        "Bypassing CDN protection",
+      ],
+      answer: 2,
+      why: "Shodan indexes favicon hashes. Search by hash to find every public host serving the same icon — often the target's own forgotten staging boxes.",
+    },
+  ]}
+/>
+
+## Lab
+
+Lab `02-osint` walks you through running `osint-passive.sh` against a fictitious domain whose
+public records are pre-staged in a local resolver. Zero external interaction, but you get to
+practice reading the output bundle.
+
+Next lesson: subdomain & DNS discovery, including when to escalate from passive to active.

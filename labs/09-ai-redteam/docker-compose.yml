@@ -1,0 +1,66 @@
+name: penlearn-ai-redteam
+
+# AI / LLM red-team lab — a LOCAL target you fully control.
+#
+# - ollama      : self-hosted LLM. garak's target (no provider ToS, no API cost).
+# - vuln-chat   : a deliberately under-guarded chat app in front of ollama. It
+#                 leaks its system prompt and renders model output UNESCAPED, so
+#                 you can practice the application-integration risks garak does
+#                 NOT cover (LLM07 system-prompt leakage, LLM05 output handling).
+# - attacker    : the secops-toolkit container; runs ai-redteam.sh.
+#
+# The network is a normal bridge (NOT internal) because ollama must pull a model
+# from the internet on first run. Isolation here means "runs on your host" — no
+# remote targets, no client systems.
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: penlearn-ai-ollama
+    ports:
+      - "127.0.0.1:11434:11434"   # bound to localhost only
+    volumes:
+      - ollama-models:/root/.ollama
+    networks:
+      - ailab
+    mem_limit: 6g
+    cpus: '2.0'
+
+  vuln-chat:
+    build: ./vuln-chat
+    container_name: penlearn-ai-vulnchat
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      - MODEL=llama3.2:1b
+    ports:
+      - "127.0.0.1:8501:8501"
+    depends_on:
+      - ollama
+    networks:
+      - ailab
+    mem_limit: 256m
+    cpus: '0.5'
+
+  attacker:
+    image: secops-toolkit:latest
+    container_name: penlearn-ai-attacker
+    hostname: attacker.lab.local
+    tty: true
+    stdin_open: true
+    working_dir: /engagements
+    environment:
+      # garak's ollama generator reads the host from OLLAMA_HOST
+      - OLLAMA_HOST=http://ollama:11434
+    volumes:
+      - ./work:/engagements
+    networks:
+      - ailab
+    mem_limit: 2g
+    cpus: '2.0'
+
+networks:
+  ailab:
+    driver: bridge
+
+volumes:
+  ollama-models:

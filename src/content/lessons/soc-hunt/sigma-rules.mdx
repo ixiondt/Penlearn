@@ -1,0 +1,202 @@
+## What Sigma is, and isn't
+
+Sigma is a YAML format for describing SIEM detection rules in a vendor-neutral way. You write
+the rule once; converters translate it to Splunk SPL, KQL (Sentinel/Defender), Elastic DSL,
+Sumo Logic, QRadar AQL, etc. The format is deliberately simple — `detection`, `condition`,
+`falsepositives` — and that simplicity is the value.
+
+It's not:
+
+- A SIEM. You still need somewhere to run the rule.
+- A complete language. Some logics (graph traversal, multi-event correlation across long windows) don't translate cleanly.
+- A guarantee of low false-positive rate. That's still your job.
+
+The toolkit's `scripts/sigma-rule-builder.sh` generates Sigma rules from ATT&CK technique IDs.
+26 IT + 6 ICS techniques are pre-templated, including the CCTC anti-forensics/privesc set
+and the AiTM phishing set (T1539, T1078.004, T1556.006).
+
+## A minimal Sigma rule
+
+```yaml
+title: Suspicious PowerShell EncodedCommand
+id: 4f3d20a1-1c11-4d3a-b2c5-6e21f8b59a14
+status: experimental
+description: Detects PowerShell launched with -EncodedCommand from a non-administrator session.
+references:
+  - https://attack.mitre.org/techniques/T1059/001/
+author: penlearn
+date: 2026-03-05
+tags:
+  - attack.execution
+  - attack.t1059.001
+logsource:
+  product: windows
+  service: process_creation
+detection:
+  selection:
+    Image|endswith: '\powershell.exe'
+    CommandLine|contains:
+      - '-EncodedCommand'
+      - '-enc '
+      - '-e '
+  filter:
+    User|startswith: 'NT AUTHORITY\\'
+  condition: selection and not filter
+falsepositives:
+  - Legitimate admin scripts using EncodedCommand for quoting reasons
+level: medium
+```
+
+Read it as: *match events where Image is powershell.exe AND CommandLine contains an encoded-command
+flag, EXCEPT when the user is a NT AUTHORITY system account.*
+
+Three things make this a usable rule rather than a noisy one:
+
+1. **A filter for known-noise.** Without `not filter`, you'd see thousands of legit system-context events.
+2. **An explicit log source.** Without `logsource`, the converter doesn't know what data to query.
+3. **Documented false positives.** Tells the next analyst what to look for when triaging hits.
+
+## Generating from a technique
+
+```bash
+./scripts/sigma-rule-builder.sh --technique T1059.001 --incident-id INC-2026-001
+```
+
+Produces rules like the above, parameterized for your environment. The script prints tunables
+the operator must fill in:
+
+```text
+NOTE: replace <your-domain> regex with the actual AD domain
+NOTE: replace <vpn-egress-asn> allowlist with your actual VPN egress ASNs
+NOTE: confirm svc-/sa-/-bot service-account naming convention matches your environment
+```
+
+These notes are not optional. A rule deployed without filling them in either fires constantly
+(no filter populated) or never fires (over-filtered placeholder values).
+
+## What the 26 IT techniques cover
+
+The supported set (as of v4.1):
+
+| ATT&CK ID    | Behavior                              | Notes                              |
+|--------------|---------------------------------------|------------------------------------|
+| T1003.001    | LSASS dumping                         | Sec 4663 mask, procdump signatures |
+| T1027        | Obfuscated files / payloads           | Base64 entropy, double-encoded     |
+| T1053.005    | Scheduled Task abuse                  | schtasks /create + non-system parent |
+| T1059.001    | PowerShell                            | EncodedCommand, downloader strings |
+| T1070.001    | Event log clearing                    | Sec 1102, wevtutil cl              |
+| T1070.003    | History clearing (Linux + Windows)    | history -c, PSReadLine clearing    |
+| T1078.004    | Cloud account abuse                   | Datacenter ASN sign-in (AiTM)      |
+| T1110.003    | Password spraying                     | Many 4625 from single source       |
+| T1190        | Public-facing app exploit             | Web 50x burst + lateral SMB        |
+| T1539        | Session token theft / replay          | Token replay cross-ASN (AiTM)      |
+| T1543.003    | Windows service abuse                 | Sec 7045 + unusual ImagePath       |
+| T1547.001    | Registry Run key persistence          | HKCU\\Run modifications            |
+| T1548.002    | UAC bypass                            | fodhelper, eventvwr, slui          |
+| T1550.003    | Pass the Ticket                       | Anomalous logon type, tool sigs    |
+| T1556.006    | MFA modification                      | New auth method + ext fwd rule     |
+| T1558.003    | Kerberoasting                         | RC4 TGS, volume signature          |
+| T1558.004    | AS-REP Roasting                       | No pre-auth flag + bulk enum       |
+| T1560.001    | Archive collection                    | 7zip / rar staging                 |
+| T1564.004    | Alternate Data Streams                | NTFS ADS read/write                |
+| T1566.001    | Spear phishing attachment             | Office macro spawn signatures      |
+| T1570        | Lateral tool transfer                 | SMB write of new binary            |
+| T1574.001    | DLL hijacking                         | Unsigned DLL load near app start   |
+| T1574.009    | Unquoted service path                 | Service install with spaces        |
+
+ICS set (T0xxx): T0855, T0856, T0831, T0846, T0869, T0886.
+
+## Tuning before deployment
+
+A generated rule is a starting point. Two-step tuning:
+
+### Step 1: Backtest
+
+Run the rule against historical telemetry — typically 30-90 days. Count the hits. If you
+get more than a handful per day, the rule will be ignored in production. Tighten the
+filter until you have one to five hits/day in a real environment.
+
+### Step 2: Hit triage on samples
+
+For each historical hit, classify as TP / FP / unknown. If your FP rate is >20%, the rule
+needs a better filter. The Sigma `falsepositives` field should list every common FP class
+you found.
+
+The toolkit's generated rules ship with reasonable defaults, but defaults can't know your
+environment. Service account names, VPN egress, admin tool baselines — those are yours
+to fill in.
+
+## Where rules live
+
+The toolkit's convention:
+
+```text
+~/incidents/[INCIDENT-ID]/08-aar/detection-rules/
+~/hunts/[HUNT-ID]/04-detection-rules/
+~/restoration/[INCIDENT-ID]/04-detection-rules/
+```
+
+For organization-level deployment, you usually have a separate detection-engineering repo.
+The Sigma rule travels from per-incident → org repo → SIEM via your normal CI pipeline.
+
+## Integrating with the SecOps toolkit pipeline
+
+Rules generated during an IR engagement get bundled into:
+
+- The AAR (after-action report) so the lessons are durable
+- The VECTR coverage push (`scripts/vectr-sync.sh`) — so coverage scoring updates
+- The CTI export (`scripts/cti-export.sh`) — IOCs alongside the rule that catches them
+
+The integration matters because rules that aren't tracked become orphans. VECTR is the
+toolkit's preferred coverage tracker because it ties detection rules to ATT&CK techniques
+to threat scenarios.
+
+<Checkpoint
+  id="sigma-rules"
+  questions={[
+    {
+      q: "You generate a Sigma rule for T1078.004 via sigma-rule-builder.sh. The output contains 'NOTE: replace <vpn-egress-asn> allowlist with your actual VPN egress ASNs'. What do you do?",
+      options: [
+        "Deploy as-is — defaults are fine",
+        "Fill in the tunable with your real VPN egress ASNs before deploying; otherwise the rule will either over-fire or never fire",
+        "Remove the note and deploy",
+        "Wait for the toolkit to be updated",
+      ],
+      answer: 1,
+      why: "Tunables are mandatory. The placeholder either matches nothing (rule silent) or matches everything (rule noisy) depending on the field. Always populate before deploying.",
+    },
+    {
+      q: "A Sigma rule has no 'filter' clause and no 'falsepositives' field. What's the most likely problem in production?",
+      options: [
+        "It won't fire at all",
+        "It will fire constantly on legitimate activity that matches the same pattern as the malicious behavior",
+        "It won't be vendor-portable",
+        "It will fail static validation",
+      ],
+      answer: 1,
+      why: "Without a filter for known-good traffic, the rule matches both intended targets and routine noise. Filters are how you carve the malicious shape out of background activity.",
+    },
+    {
+      q: "Where do AiTM detection rules generated by the toolkit (T1539, T1078.004, T1556.006) live in terms of logsource?",
+      options: [
+        "Windows process creation logs",
+        "Azure SignInLogs / AuditLogs / m365 exchange logs — they detect cloud-side identity behavior",
+        "Linux audit logs",
+        "Firewall flow logs",
+      ],
+      answer: 1,
+      why: "AiTM is a cloud-identity attack chain. The detection lives in Azure/M365 logs, not endpoint telemetry. Token replay, datacenter sign-in, OAuth consent, MFA modification, and external forwarding rules are all cloud-side.",
+    },
+  ]}
+/>
+
+## Action items
+
+1. Generate a Sigma rule for one technique you care about: `./scripts/sigma-rule-builder.sh --technique T1059.001`.
+2. Read every `NOTE:` and fill in the tunables.
+3. Backtest against your SIEM's historical data.
+4. Iterate the filter until daily hit count is manageable.
+5. Document the FP classes you found in the `falsepositives:` field.
+6. Push to VECTR via `./scripts/vectr-sync.sh` so coverage tracking knows about it.
+
+Next lesson: AiTM phishing detection in depth (the H-059 → H-064 cluster).

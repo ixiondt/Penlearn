@@ -1,0 +1,111 @@
+## Two attack surfaces, not one
+
+When people say "test the AI," they conflate two very different things:
+
+- **Model-behavioral risk** — what the model *itself* will say or do. Jailbreaks,
+  toxic generation, training-data regurgitation, malware-on-request, hallucinated
+  package names. This is a property of the weights and the alignment training.
+- **Application-integration risk** — what the *system around the model* does with
+  untrusted input and untrusted output. Prompt injection via retrieved documents,
+  tool/function-calling chains that reach a shell, model output rendered as HTML
+  (XSS) or interpolated into SQL, cross-tenant retrieval leakage.
+
+A scanner like garak is excellent at the first and largely blind to the second.
+A web-app pentester's instincts cover the second. You need both lenses, and the
+toolkit treats them as two halves of one checklist
+(`data/references/ai-security-checklist.md`).
+
+## Trust boundaries
+
+Every prompt injection is a trust-boundary violation. The model sees one flat
+token stream, but three very different *authorities* are mixed into it:
+
+```text
+┌─────────────────────────────────────────────┐
+│  SYSTEM PROMPT      (highest authority)       │  ← developer intent
+├─────────────────────────────────────────────┤
+│  RETRIEVED CONTENT  (RAG chunks, tool output) │  ← attacker may control this
+├─────────────────────────────────────────────┤
+│  USER PROMPT        (lowest authority)        │  ← attacker definitely controls this
+└─────────────────────────────────────────────┘
+```
+
+The vulnerability is that the model has no reliable way to keep these tiers
+separate. "Ignore your instructions" in the user tier, or a hidden instruction
+buried in a retrieved web page, can override the system tier. Direct injection
+attacks the user tier; **indirect** injection hides the payload in content the
+app feeds the model on the user's behalf — and that's the dangerous one, because
+the victim never typed the payload.
+
+## Map the system before you probe it
+
+The recon questions that actually change your test plan:
+
+```text
+1. Type:        chat / code-gen / summarizer / autonomous agent?
+2. Model:       hosted (OpenAI/Anthropic) or self-hosted (Llama/Mistral)?
+3. Data flow:   user input → preprocessing → model → postprocessing → output
+4. Integrations: tools, plugins, function-calling, DB access, file system?
+5. RAG?:        document sources, vector DB, multi-tenant index?
+6. Guardrails:  input filters, output classifier, rate limiting?
+7. Output sink: rendered as HTML? executed as code? used in a query?
+```
+
+Item 7 is the one web pentesters care about most and AI testers forget: an LLM
+that emits `<img src=x onerror=alert(1)>` is only a finding if something
+downstream renders it. Trace where the output *goes*.
+
+## Authorization is different here
+
+The standing rule still holds — written authorization before any active test —
+but AI targets add a second gate: **provider terms of service.** Sending
+adversarial prompts to a hosted model may violate the provider's AUP even when
+your client has authorized testing of *their* application. The toolkit's
+`ai-redteam.sh` reminds you of both gates before it runs, but the judgment is
+yours: confirm the engagement letter covers the model, and confirm the provider's
+terms permit security testing. When in doubt, test against a self-hosted model
+(see the lab) where only your own authorization is in question.
+
+<Checkpoint
+  id="llm-attack-surface"
+  questions={[
+    {
+      q: "An LLM reliably produces the string for a reflected-XSS payload when asked. Is that automatically a vulnerability in the application?",
+      options: [
+        "Yes — generating the payload is the vulnerability",
+        "Only if the model output is rendered/executed downstream without encoding — trace where the output goes",
+        "No, LLMs can never cause XSS",
+        "Only if the model is self-hosted",
+      ],
+      answer: 1,
+      why: "Output handling is an application-integration risk. The model emitting markup matters only if a downstream sink renders it unescaped. Always trace the output sink (checklist item 7).",
+    },
+    {
+      q: "Which injection class is most dangerous because the victim never typed the payload?",
+      options: [
+        "Direct prompt injection in the user prompt",
+        "Indirect injection — instructions hidden in retrieved/third-party content the app feeds the model",
+        "Encoding-based injection",
+        "All injection is equally severe",
+      ],
+      answer: 1,
+      why: "Indirect injection rides in content the application retrieves on the user's behalf (a web page, a RAG chunk, an email). The user is the victim, not the author — so it bypasses 'just don't paste sketchy prompts' advice.",
+    },
+    {
+      q: "Your client authorized testing of their chatbot, which is built on a hosted model API. What is the extra gate beyond the engagement letter?",
+      options: [
+        "Nothing — the engagement letter covers everything",
+        "The model provider's terms of service / AUP may separately restrict security testing",
+        "You must buy an enterprise license",
+        "You need ICS three-stakeholder approval",
+      ],
+      answer: 1,
+      why: "Hosted models add a provider-ToS gate on top of client authorization. ai-redteam.sh flags both; when unsure, test a self-hosted model where only your own authorization applies.",
+    },
+  ]}
+/>
+
+## Next
+
+Next lesson: drive the **garak** scanner through `ai-redteam.sh` and feed the
+results into the standard reporting pipeline.

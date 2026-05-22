@@ -1,0 +1,29 @@
+name: penlearn-workspace
+
+# Workspace lab — stands up the SecOps toolkit container with a persistent
+# engagements volume so you can practice the engagement-init workflow.
+#
+# This is the only lab where the toolkit IS in the compose file, because
+# the lab IS the toolkit setup itself.
+
+services:
+  toolkit:
+    image: secops-toolkit:latest
+    container_name: penlearn-toolkit
+    hostname: toolkit
+    tty: true
+    stdin_open: true
+    working_dir: /engagements
+    volumes:
+      - ./engagements:/engagements
+      - ./incidents:/incidents
+    networks:
+      - workspace
+    mem_limit: 2g
+    cpus: '2.0'
+    # No published ports — toolkit doesn't need to be reachable from outside
+
+networks:
+  workspace:
+    driver: bridge
+    internal: false   # toolkit needs egress for passive sources (e.g., crt.sh)

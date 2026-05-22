@@ -1,0 +1,225 @@
+## What Metasploit is, and isn't
+
+Metasploit Framework is a Ruby toolkit that packages exploits, scanners, post-exploit
+modules, and payloads behind a common interface (`msfconsole`). Two things to internalize
+before the rest of the module makes sense:
+
+1. **Metasploit is a learning and assessment tool.** Stock msfvenom payloads are
+   detected by every reputable AV product. For production red-team work, msf is
+   the lab; custom loaders are what go on engagement. The lessons here use msf
+   because the same concepts apply downstream — staging, handlers, sessions,
+   pivoting — and the workflow discipline transfers.
+2. **The toolkit's four wrappers (`msf-rc-gen.sh`, `msfvenom-gen.sh`,
+   `msf-session.sh`, `msf-post.sh`) are *not* replacements for msfconsole.**
+   They generate RC scripts and payloads that *feed* msfconsole. Read the RC files
+   before running them.
+
+## Module taxonomy
+
+Everything in msf lives under one of these top-level directories:
+
+```text
+exploit/        — gain code execution by triggering a vulnerability
+auxiliary/      — scan, brute, fuzz, DoS — no payload, no session
+post/           — run *after* you have a session
+payload/        — what executes after exploitation (reverse_tcp, meterpreter, ...)
+encoder/        — obfuscate payload bytes
+nop/            — exploit padding
+evasion/        — payload encoders targeted at AV evasion
+```
+
+When you `search` in msfconsole, the result name is a path under one of these:
+
+```text
+exploit/windows/smb/ms17_010_eternalblue
+auxiliary/scanner/smb/smb_version
+post/windows/gather/credentials/credential_collector
+payload/windows/x64/meterpreter/reverse_tcp
+```
+
+Knowing which family a module belongs to tells you what it expects. An exploit
+expects a target and a payload. An auxiliary expects RHOSTS. A post expects an
+existing session.
+
+## Sessions — the core concept
+
+A **session** is an established channel between your handler and code running
+on the target. The two flavors that matter:
+
+- **Shell session** — a raw shell (cmd.exe, bash). No special features. If the
+  connection drops, you reconnect from scratch.
+- **Meterpreter session** — a richer in-memory payload with built-in commands
+  (`sysinfo`, `ps`, `migrate`, `hashdump`, `portfwd`, `screenshot`, ...) plus
+  the ability to load extensions (`kiwi` for Mimikatz, `incognito` for token
+  manipulation, `extapi` for clipboard/window enumeration).
+
+Meterpreter beats a shell almost every time. Two caveats:
+
+1. **Architecture matters.** 32-bit meterpreter inside a 64-bit process —
+   commands silently fail. `migrate` to a same-arch process first.
+2. **Stage 2 may be blocked.** Staged meterpreter does a stage 2 callback to
+   fetch the meterpreter DLL. Some networks block this. Use stageless variants
+   when egress is uncertain: `windows/x64/meterpreter_reverse_tcp` (note the
+   underscore, no slash) rather than `windows/x64/meterpreter/reverse_tcp`.
+
+## Staged vs stageless
+
+```text
+STAGED:    [tiny stager] → connects to handler → downloads [stage 2 (meterpreter DLL)]
+                                                            ↓
+                                                       session established
+
+STAGELESS: [full payload] → connects to handler → session established immediately
+```
+
+| Property              | Staged | Stageless |
+|-----------------------|--------|-----------|
+| Initial payload size  | Tiny   | Large     |
+| Network handshake     | Two-way| One-way   |
+| Stage-2 IDS signature | Yes    | No        |
+| AV detection on disk  | Lower  | Higher    |
+| Good for SQLi RCE     | Yes    | No (too big) |
+| Good for HTTP egress  | Both   | Better    |
+
+Default is staged. Switch to stageless when payload size isn't constrained and
+the network might block the stage 2 callback.
+
+## Bind vs reverse
+
+```text
+REVERSE:  target  ──connect──→  attacker (handler listening)
+BIND:     attacker ──connect──→ target (target listening)
+```
+
+Reverse is almost always right — modern targets are behind NAT/firewalls but
+have outbound egress. Bind is rare: lab targets, deliberately Internet-exposed
+services, or pivoting through a tunnel where you've forwarded the bind port.
+
+## The database — workspaces and persistence
+
+`msfdb` gives msfconsole a PostgreSQL backend. Once initialized, every recon
+action records hosts, services, creds, loot, and notes — searchable later.
+
+```text
+msfdb init        # one-time
+msfdb start       # start the DB
+
+# inside msfconsole
+db_status                           # confirm connected
+workspace -a client-2026            # create a workspace
+workspace client-2026               # switch into it
+db_nmap -sV -A 10.0.0.0/24          # nmap, auto-stored in current workspace
+db_import scan.xml                  # import existing -oX output
+hosts                               # see what's stored
+services                            # see ports/services
+vulns                               # cross-referenced CVE matches
+```
+
+**Engagement discipline:** one workspace per engagement, named to match the
+SecOps toolkit's `scan-db` engagement name. The toolkit's `msf-session.sh`
+helper enforces this:
+
+```bash
+./scripts/msf-session.sh workspace --name client-2026 --execute
+./scripts/msf-session.sh import-nmap --xml scan.xml --workspace client-2026 --execute
+./scripts/msf-session.sh import-findings --xml scored.json --workspace client-2026 --execute
+```
+
+Without a workspace, your hosts go to the default and you'll come back next
+session and wonder where the data went.
+
+## The handler
+
+The handler is `exploit/multi/handler` — a listener that catches incoming
+sessions. Setup looks like:
+
+```text
+use exploit/multi/handler
+set PAYLOAD windows/x64/meterpreter/reverse_tcp
+set LHOST 10.0.0.5
+set LPORT 4444
+set ExitOnSession false              # keep listening after first catch
+set EnableStageEncoding true         # encode stage 2 (helps against IDS)
+exploit -j -z                        # -j background, -z no auto-interact
+```
+
+`msf-session.sh handler` generates this RC file with your params filled in.
+
+The critical flag is `ExitOnSession false`. Without it, the handler dies after
+the first session and you lose subsequent callbacks. Always set it for engagement
+work; only leave it true for short-lived single-target tests.
+
+## Where the four toolkit scripts fit
+
+```text
+                    ┌───────────────────┐
+findings JSON  ───→ │  msf-rc-gen.sh    │ ───→ exploit/auxiliary RC scripts
+                    └───────────────────┘
+                              │
+                              ↓
+                    ┌───────────────────┐
+                    │  msfvenom-gen.sh  │ ───→ payload binary + handler RC + manifest
+                    └───────────────────┘
+                              │
+                              ↓
+                    ┌───────────────────┐
+                    │  msf-session.sh   │ ───→ workspace, handler, db_import, db_export
+                    └───────────────────┘
+                              │
+                              ↓
+                    ┌───────────────────┐
+session established → │  msf-post.sh     │ ───→ post-exploit recipe RC scripts (20)
+                    └───────────────────┘
+```
+
+Each script is **dry-run by default**. You generate the RC, you read it, then
+you pass `--execute` once you're satisfied. The wrappers exist to keep you in
+the engagement workflow — they route output into the right engagement directory,
+add manifest files with SHA-256 hashes, and enforce confirmation gates.
+
+<Checkpoint
+  id="msf-fundamentals"
+  questions={[
+    {
+      q: "A target is behind a corporate firewall. You have RCE that gives you a buffer of ~400 bytes for shellcode. Which msf payload variant is right?",
+      options: [
+        "Stageless meterpreter — better feature set",
+        "Staged meterpreter — the stager fits in 400 bytes; stage 2 downloads after connection",
+        "Bind shell — the firewall doesn't matter",
+        "Plain reverse_tcp shell — meterpreter is overkill",
+      ],
+      answer: 1,
+      why: "Staged is for size-constrained primitives. The tiny stager (~250-350 bytes for x64 reverse_tcp) fits; stage 2 (the full meterpreter DLL, ~200KB) downloads over the established channel.",
+    },
+    {
+      q: "You catch a session, the handler dies, and the target hasn't re-connected. Most likely cause?",
+      options: [
+        "Network outage",
+        "ExitOnSession was true (the default for some module configurations) — handler exited after the first catch",
+        "The payload was 32-bit on a 64-bit target",
+        "Stage encoding was disabled",
+      ],
+      answer: 1,
+      why: "ExitOnSession false is non-default in some workflows. Always set it explicitly for engagement work. Until you do, expect single-catch handlers.",
+    },
+    {
+      q: "You run db_nmap and the next msfconsole session shows no hosts. Why?",
+      options: [
+        "db_nmap is deprecated",
+        "You forgot to set a workspace — results went to the default workspace, then a different default loaded next time",
+        "The database doesn't persist between sessions",
+        "nmap output was malformed",
+      ],
+      answer: 1,
+      why: "Without `workspace <name>` your data goes to the default workspace, and the default behavior varies. Engagement convention: one workspace per engagement, named after the toolkit's scan-db engagement name.",
+    },
+  ]}
+/>
+
+## Action items
+
+1. Run `msfconsole -q` and confirm `db_status` shows connected. If not, `msfdb init` from the shell first.
+2. Read `data/references/metasploit-reference.md` in the toolkit — keep it open as a tab.
+3. `./scripts/msf-session.sh rc-template` — print the starter template and read every line.
+
+Next lesson: turning a findings JSON into a runnable RC script with `msf-rc-gen.sh`.

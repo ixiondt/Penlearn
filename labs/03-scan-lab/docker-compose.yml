@@ -1,0 +1,83 @@
+name: penlearn-scan
+
+# Active scan lab — small set of intentionally-vulnerable services on a
+# private network. Practice nmap, service enumeration, CVE pipeline.
+# NOT exposed to the host. Toolkit attaches via --network penlearn-scan_scan.
+
+services:
+  # Old vsftpd with backdoor banner (CVE-2011-2523-style behavior simulated)
+  vuln-ftp:
+    image: instrumentisto/vsftpd:latest
+    container_name: penlearn-scan-ftp
+    hostname: ftp.scan.local
+    environment:
+      - FTP_USER=anonymous
+      - FTP_PASS=
+    networks:
+      scan:
+        ipv4_address: 10.60.0.10
+    mem_limit: 128m
+    cpus: '0.3'
+
+  # Older SSH with banner that maps to known CVEs
+  vuln-ssh:
+    image: linuxserver/openssh-server:version-7.4_p1-r0
+    container_name: penlearn-scan-ssh
+    hostname: ssh.scan.local
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - PASSWORD_ACCESS=true
+      - USER_NAME=labuser
+      - USER_PASSWORD=labpass
+    networks:
+      scan:
+        ipv4_address: 10.60.0.11
+    mem_limit: 256m
+    cpus: '0.3'
+
+  # Old Apache with mod_ssl + a directory listing
+  vuln-web:
+    image: httpd:2.4.49-alpine
+    container_name: penlearn-scan-web
+    hostname: web.scan.local
+    volumes:
+      - ./targets/www:/usr/local/apache2/htdocs:ro
+    networks:
+      scan:
+        ipv4_address: 10.60.0.12
+    mem_limit: 256m
+    cpus: '0.3'
+
+  # SMB with weak config — practice enum4linux flow
+  vuln-smb:
+    image: dperson/samba:latest
+    container_name: penlearn-scan-smb
+    hostname: smb.scan.local
+    command: -s "public;/share;yes;no;yes" -u "lab;labpass" -p
+    volumes:
+      - ./targets/share:/share:ro
+    networks:
+      scan:
+        ipv4_address: 10.60.0.13
+    mem_limit: 256m
+    cpus: '0.3'
+
+  # SNMP daemon — practice onesixtyone + snmpwalk
+  vuln-snmp:
+    image: tandrup/snmpd:latest
+    container_name: penlearn-scan-snmp
+    hostname: snmp.scan.local
+    networks:
+      scan:
+        ipv4_address: 10.60.0.14
+    mem_limit: 64m
+    cpus: '0.2'
+
+networks:
+  scan:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.60.0.0/24

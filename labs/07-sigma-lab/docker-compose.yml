@@ -1,0 +1,63 @@
+name: penlearn-sigma
+
+# Sigma rule authoring lab — single-node OpenSearch + Logstash + Dashboards.
+# Pre-seeded with synthetic Windows + Linux logs that match the 26+6 templates
+# the toolkit's sigma-rule-builder.sh can generate.
+
+services:
+  opensearch:
+    image: opensearchproject/opensearch:2.18.0
+    container_name: penlearn-sigma-opensearch
+    environment:
+      - discovery.type=single-node
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - DISABLE_SECURITY_PLUGIN=true
+      - OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    networks:
+      sigma:
+        ipv4_address: 10.80.0.10
+    mem_limit: 2g
+    cpus: '1.5'
+
+  dashboards:
+    image: opensearchproject/opensearch-dashboards:2.18.0
+    container_name: penlearn-sigma-dashboards
+    environment:
+      - OPENSEARCH_HOSTS=http://opensearch:9200
+      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
+    ports:
+      - "127.0.0.1:5601:5601"   # only localhost
+    networks:
+      sigma:
+        ipv4_address: 10.80.0.11
+    mem_limit: 1g
+    cpus: '0.5'
+    depends_on:
+      - opensearch
+
+  log-seeder:
+    image: python:3.12-alpine
+    container_name: penlearn-sigma-seeder
+    volumes:
+      - ./targets/seed-logs.py:/seed.py:ro
+      - ./targets/events:/events:ro
+    command: ["sh", "-c", "pip install --quiet requests && python /seed.py"]
+    networks:
+      sigma:
+        ipv4_address: 10.80.0.12
+    depends_on:
+      - opensearch
+    restart: "no"
+
+networks:
+  sigma:
+    driver: bridge
+    # NOT internal — dashboards needs to bind to localhost
+    ipam:
+      config:
+        - subnet: 10.80.0.0/24
+
+volumes:
+  opensearch-data:

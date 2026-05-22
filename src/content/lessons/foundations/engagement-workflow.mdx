@@ -1,0 +1,178 @@
+## Why scaffolding matters
+
+Every engagement produces the same artifacts: authorization paperwork, recon output, findings,
+evidence, a report. Inconsistent directory layouts mean three things go wrong:
+
+1. The wrong tool can't find the data it expects (`report-generator.py` looks for findings JSON
+   in specific locations; `scan-db.py` queries by engagement name).
+2. The next analyst on the engagement spends an hour figuring out where the SMB enum output went.
+3. Six months later, when you need to audit the work or hand it to another team, half the
+   evidence is unrecoverable.
+
+The toolkit solves this with `scripts/engagement-init.sh` — one command stands up the directory
+tree, registers the engagement in `scan-db`, and drops a `00-MANIFEST.json` with the toolkit git
+SHA so the work is reproducible.
+
+## The directory conventions
+
+CLAUDE.md §7 fixes the layout. For a pentest / threat hunt with active recon:
+
+```text
+~/assessments/[ENGAGEMENT]/
+├── 00-authorization.txt      # Scope document — FIRST. Engagement halts if this is missing.
+├── 01-passive-recon/         # OSINT, cert transparency, passive DNS, breach data
+├── 02-active-recon/          # nmap, subdomain enum, direct DNS queries
+├── 03-enumeration/           # Service fingerprinting, web crawl, API mapping
+├── 04-vulnerabilities/       # nikto, nuclei, ZAP, CVE/OSV findings
+├── 05-exploitation/          # Confirmed exploits (authorized targets only)
+├── 06-evidence/              # Raw outputs (redact sensitive data before archiving)
+└── 07-report/                # Final deliverable
+```
+
+For IR work, the layout is different:
+
+```text
+~/incidents/[INCIDENT-ID]/
+├── 00-intake.txt             # Initial report, severity, timeline start
+├── 01-timeline.md            # Running timeline (all entries timestamped)
+├── 02-scope.md               # Affected systems and user accounts
+├── 03-iocs.txt               # IPs, domains, hashes, file paths, accounts
+├── 04-attck-map.md           # ATT&CK technique inventory
+├── 05-containment-log.txt    # Actions taken, timestamps, authority documented
+├── 06-notifications.md       # Stakeholder notification tracker
+├── 07-evidence/              # Chain-of-custody artifacts (PB-016)
+└── 08-aar/                   # Timeline, root cause, lessons learned, rule updates
+```
+
+Don't deviate. Other toolkit scripts read these paths.
+
+## engagement-init.sh by type
+
+The script understands six engagement types:
+
+| Type       | What it scaffolds                                                                                    |
+|------------|------------------------------------------------------------------------------------------------------|
+| `web`      | Default web app testing layout + seeds `webapp-attack-checklist.md`, `auth-attack-checklist.md`, `waf-bypass-reference.md` |
+| `infra`    | Default infrastructure pentest layout (the §7 assessments tree above)                                |
+| `ad`       | Active Directory engagement with `enumeration-checklist.md` seeded                                   |
+| `ot`       | Purdue-zoned directory layout + three-stakeholder authorization template                             |
+| `ir`       | IR layout under `~/incidents/` instead of `~/assessments/`                                           |
+| `phishing` | 1-2-...7-debrief layout with strict 3-signatory authorization template, abort criteria, SOC pre-brief, and the AiTM defense reference |
+
+Each one drops a `RUNBOOK.md` that lists the pipeline of toolkit commands for that engagement type.
+
+## Walking through a web engagement
+
+```bash
+# Stand up the workspace
+./scripts/engagement-init.sh acme-q2 --type web
+
+# What you get:
+~/assessments/acme-q2/
+├── 00-authorization.txt          # Template to fill in
+├── 00-MANIFEST.json              # toolkit git SHA, scaffold timestamp, engagement type
+├── 01-passive-recon/
+├── 02-active-recon/
+├── 03-enumeration/
+├── 04-vulnerabilities/
+├── 05-exploitation/
+├── 06-evidence/
+├── 07-report/
+├── REFS/                         # web-attack, auth-attack, waf-bypass checklists copied in
+└── RUNBOOK.md                    # ordered command pipeline
+```
+
+The runbook is the value-add. It looks roughly like:
+
+```markdown
+# RUNBOOK — Web Engagement: acme-q2
+
+## Phase 1: Passive
+- [ ] osint-passive.sh acme.com --engagement acme-q2
+- [ ] subdomain-enum.sh acme.com --passive-only --engagement acme-q2
+- [ ] phish-infra-check.sh acme.com --ct-days 30
+
+## Phase 2: Active recon (authorization gate)
+- [ ] pentest.sh acme.com 203.0.113.10
+- [ ] webapp-scanner.sh https://app.acme.com --engagement acme-q2
+
+## Phase 3: Targeted testing
+- [ ] web-fuzzer.sh https://app.acme.com --api-discovery
+- [ ] ./REFS/webapp-attack-checklist.md  (work through it)
+
+## Phase 4: Findings → report
+- [ ] cve-lookup.sh --nmap-file 02-active-recon/*.txt --output findings.json
+- [ ] risk-scoring.py --findings findings.json --output scored.json
+- [ ] scan-db.py import-findings --findings scored.json --engagement acme-q2
+- [ ] report-generator.py --findings scored.json --output 07-report/report.docx --summarize
+- [ ] network-diagram.py --nmap-file 02-active-recon/*.txt --findings scored.json --output 07-report/topology
+```
+
+Check off as you go. Replays cleanly six months later when you need to demonstrate methodology.
+
+## Why scan-db registration matters
+
+`scripts/scan-db.py` is a SQLite layer that persists scan results across engagements. The init
+auto-registers your engagement so later commands can `--engagement acme-q2` without re-declaring:
+
+```bash
+# Later in the engagement
+python3 scripts/scan-db.py import-nmap --nmap-file 02-active-recon/realip.txt --engagement acme-q2
+python3 scripts/scan-db.py import-findings --findings scored.json --engagement acme-q2
+
+# Cross-engagement queries
+python3 scripts/scan-db.py query --engagement acme-q2 --severity HIGH
+python3 scripts/scan-db.py query-ports --service ssh           # across ALL engagements
+python3 scripts/scan-db.py compare --scan1 abc --scan2 def     # delta between scans
+```
+
+The `tasks` table also gives you per-engagement task tracking — `scan-db.py task add/list/show/update/done`
+— useful when an engagement spans weeks.
+
+<Checkpoint
+  id="engagement-workflow"
+  questions={[
+    {
+      q: "You start a new web app pentest. What's the first artifact in the engagement directory?",
+      options: [
+        "01-passive-recon/ — recon comes first",
+        "00-authorization.txt — the scope document, before any technical work",
+        "RUNBOOK.md — the pipeline checklist",
+        "07-report/ — set up the deliverable scaffold first",
+      ],
+      answer: 1,
+      why: "Authorization first, always. The engagement halts if 00-authorization.txt is empty.",
+    },
+    {
+      q: "You ran nmap and the output is in your home directory. Where should it go?",
+      options: [
+        "Anywhere — the toolkit reads from wherever you specify",
+        "~/assessments/[engagement]/02-active-recon/ — and the toolkit's later commands expect to find it there",
+        "06-evidence/ — all raw outputs go there",
+        "07-report/ — only finished artifacts go in 02",
+      ],
+      answer: 1,
+      why: "02-active-recon/ is the convention. scan-db, cve-lookup, network-diagram all default to this layout.",
+    },
+    {
+      q: "An OT engagement is being scaffolded. What's different about engagement-init.sh --type ot vs. infra?",
+      options: [
+        "Nothing — they produce identical trees",
+        "OT type uses a Purdue-zoned layout and templates a three-stakeholder authorization document; infra uses the standard tree",
+        "OT type runs without authorization",
+        "OT type writes to ~/incidents/ instead of ~/assessments/",
+      ],
+      answer: 1,
+      why: "OT work has higher safety stakes — the toolkit enforces the three-stakeholder pattern (IR Lead + NetO + process engineer) starting from the scaffold.",
+    },
+  ]}
+/>
+
+## Action items
+
+1. Clone the SecOps toolkit if you haven't.
+2. Run `./scripts/env-check.sh` and resolve any missing dependencies you'll need.
+3. Scaffold a practice engagement: `./scripts/engagement-init.sh test-engagement --type web`.
+4. Open the generated `RUNBOOK.md` and read it end-to-end. That's the curriculum for the active modules.
+
+Lab `01-workspace` walks through this on a containerized toolkit if you'd rather not install locally first.

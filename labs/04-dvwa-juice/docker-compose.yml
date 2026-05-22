@@ -1,0 +1,44 @@
+name: penlearn-webapp
+
+# Web app lab — DVWA + Juice Shop + a small custom vulnerable API.
+# All targets on a private internal network. Toolkit attaches.
+
+services:
+  dvwa:
+    image: vulnerables/web-dvwa:latest
+    container_name: penlearn-webapp-dvwa
+    hostname: dvwa.web.local
+    networks:
+      web:
+        ipv4_address: 10.70.0.10
+    mem_limit: 512m
+    cpus: '0.5'
+
+  juiceshop:
+    image: bkimminich/juice-shop:v17.1.1
+    container_name: penlearn-webapp-juice
+    hostname: juice.web.local
+    networks:
+      web:
+        ipv4_address: 10.70.0.11
+    mem_limit: 1g
+    cpus: '0.5'
+
+  # Small vulnerable API for IDOR / JWT / SSRF practice
+  vuln-api:
+    image: vulnerables/cve-2017-7494:latest
+    container_name: penlearn-webapp-api
+    hostname: api.web.local
+    networks:
+      web:
+        ipv4_address: 10.70.0.12
+    mem_limit: 256m
+    cpus: '0.3'
+
+networks:
+  web:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.70.0.0/24

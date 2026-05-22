@@ -1,0 +1,137 @@
+## Why authorization is the first lesson
+
+Every other lesson on this site is downstream of one rule: **active testing requires written authorization**.
+The reason isn't bureaucratic. It's that the difference between "security professional" and "unauthorized
+intruder" — legally, ethically, and operationally — is the document on your desk before you press enter.
+
+The SecOps toolkit codifies this as its first standing rule:
+
+> Authorization before action. Written scope or engagement letter required before any active testing.
+> Passive recon against public data does not require authorization.
+
+Internalize the split between **passive** and **active** before doing anything else. Get it wrong and a
+"quick nmap to see what's there" becomes a criminal offense in most jurisdictions.
+
+## Passive vs. active — the operational definition
+
+| Category | Touches target | Examples | Authorization required |
+|----------|---------------|----------|------------------------|
+| Passive  | No            | WHOIS, certificate transparency logs, public DNS resolvers querying you, public breach data, Shodan/Censys results that already exist, OSINT framework queries | No |
+| Active   | Yes           | Port scans, banner grabs, web fuzzing, vulnerability scans, credential spraying, social engineering, anything that creates a log entry on the target | **Yes — written** |
+
+A useful test: *would the target's logs show I was there?* If yes, that's active.
+
+The boundary line is sharper than people think. Running `dig` against a public resolver to look up
+`example.com` is passive. Running `dig +trace` so your recursor asks `example.com`'s authoritative
+nameservers directly creates packets at the target. The first is fine. The second is active.
+
+## What "written authorization" actually means
+
+You need one of these before the active engagement starts:
+
+- **Scope document** — for retained pentest work, signed by someone who can authorize testing on the target's behalf
+- **Engagement letter** — for one-off assessments
+- **Rules of engagement (ROE)** — for red team / purple team / longer engagements; usually includes communication channels, abort criteria, blackout windows
+- **Internal authorization** — for in-house security teams, a documented program with explicit management sign-off
+
+The document should answer at minimum:
+
+1. **What** — IP ranges, domains, applications, user accounts, physical locations
+2. **What's excluded** — production-critical systems, third-party SaaS, customers' infrastructure
+3. **When** — start, end, blackout windows
+4. **How aggressive** — denial-of-service permitted? destructive testing? social engineering?
+5. **Who's the contact** — names, phone numbers, escalation path, a 24/7 number
+6. **Who signed it** — the person authorizing must have actual authority
+
+If any of those are missing or vague, ask. Don't proceed on assumption.
+
+## The standing rule in the toolkit
+
+The toolkit's CLAUDE.md §8 makes this explicit:
+
+> Authorization before action. Written scope or engagement letter required before any active testing.
+> Passive recon against public data does not require authorization.
+
+And §1 of the standing rules:
+
+> When uncertain, treat as the higher severity level.
+
+When in doubt about whether something is "active enough" to need authorization, treat it as active.
+The cost of a confirmation email is zero. The cost of being wrong is your career.
+
+## Common authorization gotchas
+
+- **Third-party services.** The scope says "test our app." The app uses Stripe, Cloudflare, and Auth0.
+  You don't have authorization for those — and Stripe in particular has aggressive lawyers. Your scope
+  needs to either exclude them or have the operator confirm out-of-band that hitting them is fine.
+- **Cloud assets.** AWS, Azure, and GCP all have published pentest policies. AWS dropped the pre-auth
+  requirement in 2019 for most services, but **denial of service** and **simulated phishing** still
+  require explicit AWS approval. Read the cloud provider's policy.
+- **Shared infrastructure.** A VPS at DigitalOcean? The customer owns the VM, but the hypervisor and
+  network are DO's. Read their AUP. Most cloud providers permit testing of your own resources but
+  forbid testing that affects neighbors.
+- **Production.** "Test the app" usually means staging or pre-prod. Confirm explicitly before pointing
+  any active tool at a production system.
+- **DNS providers.** Running aggressive subdomain brute-forcing through a CDN provider's resolvers can
+  trigger that provider's anti-abuse. You may be authorized to test the customer; you're not authorized
+  to abuse Cloudflare's 1.1.1.1.
+
+## Why this matters for the rest of the curriculum
+
+Every active-mode module in this site has the same prerequisite: you have a target you're allowed to
+test. The labs handle this by being self-hosted — the targets are vulnerable VMs you stand up on your
+own machine, so the authorization is implicit. The toolkit, however, will happily point at any IP you
+give it. The discipline is yours.
+
+The toolkit even bakes in a confirmation gate in `scripts/lib/common.sh` (`confirm_action`) that
+several active scripts use. It's not a replacement for written authorization — it's a tripwire to
+make sure you've paused.
+
+<Checkpoint
+  id="authorization"
+  questions={[
+    {
+      q: "You want to enumerate subdomains of example.com using crt.sh and subfinder's passive sources. Do you need written authorization?",
+      options: [
+        "Yes — any subdomain enumeration creates packets at the target",
+        "No — both query public certificate transparency logs and aggregated databases that already exist",
+        "Only for subfinder, not for crt.sh",
+        "Only if example.com is a US-based company",
+      ],
+      answer: 1,
+      why: "Both crt.sh and subfinder's passive sources read pre-existing data sources. Neither sends traffic to example.com itself.",
+    },
+    {
+      q: "Your scope document covers app.example.com. The app loads JavaScript from cdn.cloudflare.com and APIs from api.stripe.com. You want to fuzz the Stripe API endpoints because you suspect IDOR. Acceptable?",
+      options: [
+        "Yes — the scope says 'test the application' and APIs are part of the application",
+        "Yes — Stripe is a public service so it's already exposed",
+        "No — your scope doesn't cover Stripe's infrastructure, and you'd be testing a third party without authorization",
+        "Only if you use rate limiting",
+      ],
+      answer: 2,
+      why: "Third-party services need their own authorization. The toolkit's standing rule treats this as out-of-scope active testing.",
+    },
+    {
+      q: "A customer asks you to test their AWS environment. They sign a scope document. You plan a denial-of-service test of their load balancer to validate auto-scaling. Sufficient?",
+      options: [
+        "Yes — they signed the scope, you're authorized",
+        "No — AWS still requires explicit pre-authorization for DoS testing, even with customer permission",
+        "Only if you stay under 10 Gbps",
+        "Only if you test outside business hours",
+      ],
+      answer: 1,
+      why: "AWS's pentest policy carves DoS out of the no-pre-auth path. The customer can authorize you to test their resources, but AWS owns the network and forbids DoS without an explicit ticket.",
+    },
+  ]}
+/>
+
+## Action items before you advance
+
+1. Read CLAUDE.md §8 of your SecOps toolkit clone — the full standing rules, not just rule #1.
+2. Bookmark the cloud provider pentest policies for the providers you work with most.
+3. Create a `00-authorization.txt` template in your toolkit clone you can drop into every engagement.
+4. Decide your personal rule for "uncertain" cases. The toolkit's default is "treat as higher severity" —
+   yours should be at least that strict.
+
+Next lesson covers the ATT&CK framework as the mental model you'll use to organize everything else.

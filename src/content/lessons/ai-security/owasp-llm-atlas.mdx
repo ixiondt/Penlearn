@@ -1,0 +1,132 @@
+## Two maps for AI findings
+
+A network finding gets a CVE and an ATT&CK technique. An AI finding gets two
+different references:
+
+- **OWASP LLM Top 10 (2025)** — the *vulnerability-class* map, like the classic
+  web Top 10 but for LLM applications. `LLM01`–`LLM10`.
+- **MITRE ATLAS** — the *adversary-technique* map, ATT&CK's sibling for
+  adversarial machine learning. Technique IDs look like `AML.T0051`.
+
+The toolkit tags findings with both where a clean mapping exists. They answer
+different questions: OWASP says "what kind of weakness is this," ATLAS says "what
+did the adversary do."
+
+## OWASP LLM Top 10 (2025)
+
+```text
+LLM01  Prompt Injection                  direct + indirect override of instructions
+LLM02  Sensitive Information Disclosure  system-prompt / PII / training-data leak
+LLM03  Supply Chain                      poisoned models, deps, adapters
+LLM04  Data & Model Poisoning            training-set / fine-tune tampering
+LLM05  Improper Output Handling          XSS/SQLi/SSRF via model output
+LLM06  Excessive Agency                  over-permissioned tools / autonomy
+LLM07  System Prompt Leakage             extraction of the system prompt
+LLM08  Vector & Embedding Weaknesses     RAG poisoning, cross-tenant retrieval
+LLM09  Misinformation                    hallucination, incl. package hallucination
+LLM10  Unbounded Consumption            token bombs, cost/DoS amplification
+```
+
+`risk-scoring.py` auto-tags web findings against OWASP from keywords, but garak
+findings arrive **pre-tagged** by `parsers/garak.py` because the parser knows
+exactly which probe family maps to which class.
+
+## How garak probe families map
+
+```text
+garak probe family      OWASP   ATLAS        what it elicited
+─────────────────────   ─────   ──────────   ──────────────────────────────
+promptinject            LLM01   AML.T0051    instruction override
+dan / gcg / atkgen      LLM01   AML.T0054    jailbreak (manual / suffix / adaptive)
+encoding                LLM01   AML.T0051    injection past string filters
+leakreplay              LLM02   AML.T0057    training-data regurgitation
+xss                     LLM05   AML.T0048    unsafe markup in output
+malwaregen              LLM05   —            malware-on-request (no clean ATLAS)
+packagehallucination    LLM09   —            non-existent deps → slopsquatting
+misleading / snowball   LLM09   —            confident hallucination
+realtoxicityprompts     —       —            toxicity (safety, not OWASP-class)
+```
+
+Two things to notice. First, several safety probes (toxicity, do-not-answer) have
+**no clean OWASP/ATLAS slot** — the parser leaves those fields empty rather than
+forcing a wrong tag. A blank `owasp` on a toxicity finding is correct, not a bug.
+Second, `packagehallucination` is `LLM09` *Misinformation*, not supply chain —
+the model inventing a package name is a hallucination; the supply-chain damage
+happens later when someone installs the slopsquatted name.
+
+## Where garak's coverage ends
+
+This is the most important slide. garak is a **model-behavioral** scanner. Map it
+onto the OWASP list and the gaps are obvious:
+
+```text
+LLM01 Prompt Injection          ✅ garak (direct) / ⚠️ indirect+RAG manual
+LLM02 Sensitive Info Disclosure ✅ garak (leakreplay) + manual prompt-extraction
+LLM05 Improper Output Handling  ⚠️ garak flags the string; YOU verify the sink
+LLM06 Excessive Agency          ❌ manual — tool/function-calling chains
+LLM08 Vector & Embedding        ❌ manual — RAG poisoning, cross-tenant retrieval
+LLM03/04 Supply Chain/Poisoning ❌ manual — model provenance, fine-tune drift
+LLM09 Misinformation            ✅ garak (snowball/packagehallucination)
+LLM10 Unbounded Consumption     ⚠️ partial — manual token-bomb testing
+```
+
+The ❌ rows are application-integration risks from the first lesson. No
+prompt-level scanner reaches them — they need a pentester reasoning about the
+*system*: can a poisoned RAG document steer retrieval? Can two allowed tools chain
+into RCE? Does retrieval respect tenant boundaries? Those live in
+`data/references/ai-security-checklist.md` §3 (RAG), §4 (tool-calling), §8
+(supply chain), and you work them by hand.
+
+## Putting it in the report
+
+Because findings carry `owasp` and `atlas`, the HTML report renders them in the
+per-finding detail and the OWASP column, and the DOCX report lists them in the
+metadata block. A reviewer sees `LLM01 / AML.T0051` next to the failure rate and
+knows both the class and the adversary technique at a glance — the same fluency
+you built for ATT&CK in Module 01, applied to AI.
+
+<Checkpoint
+  id="owasp-llm-atlas"
+  questions={[
+    {
+      q: "What is the difference between the OWASP LLM Top 10 tag and the MITRE ATLAS tag on a finding?",
+      options: [
+        "They are the same thing with different numbers",
+        "OWASP names the vulnerability class ('what kind of weakness'); ATLAS names the adversary technique ('what the attacker did')",
+        "OWASP is for web, ATLAS is for networks",
+        "ATLAS replaced OWASP in 2025",
+      ],
+      answer: 1,
+      why: "OWASP LLM = vulnerability-class map; ATLAS = adversarial-ML technique map (ATT&CK's sibling). They answer different questions and the toolkit tags both where a clean mapping exists.",
+    },
+    {
+      q: "A garak toxicity finding comes back with an empty owasp field. What does that mean?",
+      options: [
+        "The parser is broken",
+        "Correct behavior — toxicity has no clean OWASP LLM class, so the parser leaves it blank rather than forcing a wrong tag",
+        "It should be tagged LLM05",
+        "Toxicity is not a real finding",
+      ],
+      answer: 1,
+      why: "Several safety probes have no clean OWASP/ATLAS slot. Leaving the field empty is deliberate — a forced wrong tag is worse than no tag.",
+    },
+    {
+      q: "Which OWASP LLM risks does garak essentially NOT cover, requiring manual testing?",
+      options: [
+        "Prompt injection and jailbreaks",
+        "Excessive Agency (tool-calling chains), Vector & Embedding (RAG poisoning, cross-tenant retrieval), and Supply Chain / poisoning",
+        "Misinformation and training-data leakage",
+        "None — garak covers all ten",
+      ],
+      answer: 1,
+      why: "garak is model-behavioral. Application-integration risks — tool/function-calling chains, RAG poisoning, cross-tenant retrieval, model provenance — stay manual (checklist §3/§4/§8).",
+    },
+  ]}
+/>
+
+## Next
+
+You've closed the loop: scan the model with garak, normalize and tag the findings,
+and know exactly which OWASP LLM rows still need a human. Back to the module index
+to mark it complete, or jump to **Reporting** to fold AI findings into the
+deliverable.
