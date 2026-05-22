@@ -48,6 +48,7 @@ const securityHeaders = [
 ];
 
 const config: NextConfig = {
+  output: "standalone",
   pageExtensions: ["ts", "tsx", "md", "mdx"],
   poweredByHeader: false,
   reactStrictMode: true,

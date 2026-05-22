@@ -1,0 +1,98 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/ixiondt/penlearn
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install deps
+        run: npm install --no-audit --no-fund
+
+      # --- Gates ---
+      - name: Typecheck (blocking)
+        run: npx tsc --noEmit
+
+      - name: Lint (non-blocking — pre-existing debt, see DEPLOY.md)
+        run: npm run lint
+        continue-on-error: true
+
+      # --- Build + push image ---
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy scan (blocking on CRITICAL/HIGH)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE }}:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      # --- Deploy: host logs in with the per-run token, pulls, restarts, logs out ---
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: GHCR_USER,GHCR_TOKEN
+          command_timeout: 10m
+          # SSH in as `deploy` (sudoer), then drop to the isolated rootless-podman
+          # app user. Unquoted heredoc so $GHCR_TOKEN/$GHCR_USER expand in the
+          # outer shell before entering `sudo -i` (which strips env); echo is a
+          # builtin so the token never lands in /proc/*/cmdline.
+          script: |
+            set -euo pipefail
+            sudo -u penlearn-deploy -i bash <<EOF
+              set -euo pipefail
+              echo "$GHCR_TOKEN" | podman login ghcr.io -u "$GHCR_USER" --password-stdin
+              trap 'podman logout ghcr.io || true' EXIT
+              cd /opt/apps/penlearn
+              podman pull ghcr.io/ixiondt/penlearn:latest
+              podman-compose -f podman-compose.prod.yml down 2>/dev/null || true
+              podman-compose -f podman-compose.prod.yml up -d
+              podman image prune -f || true
+            EOF

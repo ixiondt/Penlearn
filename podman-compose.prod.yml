@@ -1,0 +1,32 @@
+# Production compose for the droplet. Lives at /opt/apps/penlearn/ on the host.
+# Image is built + pushed by .github/workflows/deploy.yml; this file only runs it.
+#
+# Host port 3014 — the next free port on the shared droplet (3001-3013/3500/8080
+# are allocated). Bound to 127.0.0.1 so the container is reachable only via the
+# Caddy reverse proxy, never directly.
+
+services:
+  penlearn:
+    image: ghcr.io/ixiondt/penlearn:latest
+    container_name: penlearn
+    restart: always
+    ports:
+      - "127.0.0.1:3014:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_TELEMETRY_DISABLED=1
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+    cpus: "1.0"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

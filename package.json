@@ -8,7 +8,7 @@
     "prebuild": "tsx scripts/build-search-index.ts || echo \"[search-index] skipped — /api/search-index will serve live index\"",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "search-index": "tsx scripts/build-search-index.ts",
     "telemetry": "next telemetry disable"
