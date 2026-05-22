@@ -79,25 +79,31 @@ export default async function LessonPage(props: { params: Promise<{ moduleId: st
 function PlaceholderContent({ lesson }: { lesson: NonNullable<ReturnType<typeof getLesson>>["lesson"] }) {
   return (
     <>
-      <div className="callout callout-warn">
-        <h4 style={{ marginTop: 0 }}>Lesson stub</h4>
-        <p style={{ marginBottom: 0 }}>
-          Lesson content has not been authored yet. Drop an MDX file at{" "}
-          <code>src/content/lessons/&lt;moduleId&gt;/{lesson.id}.mdx</code> and it will render here.
+      <div className="callout">
+        <p style={{ margin: 0 }}>
+          This lesson is a structured outline — its overview, the toolkit scripts and
+          field references it maps to, and the ATT&amp;CK techniques it covers. The full
+          walkthrough is being authored.
         </p>
       </div>
-      <h2>What this lesson will cover</h2>
+      <h2>Overview</h2>
       <p>{lesson.summary}</p>
-      {lesson.docs && lesson.docs.length > 0 && (
-        <>
-          <h3>Reference material in the SecOps toolkit</h3>
-          <ul>{lesson.docs.map((d) => <li key={d}><code>{d}</code></li>)}</ul>
-        </>
-      )}
       {lesson.scripts && lesson.scripts.length > 0 && (
         <>
           <h3>Toolkit scripts</h3>
           <ul>{lesson.scripts.map((s) => <li key={s}><code>scripts/{s}</code></li>)}</ul>
+        </>
+      )}
+      {lesson.docs && lesson.docs.length > 0 && (
+        <>
+          <h3>Field references</h3>
+          <ul>{lesson.docs.map((d) => <li key={d}><code>{d}</code></li>)}</ul>
+        </>
+      )}
+      {lesson.attck && lesson.attck.length > 0 && (
+        <>
+          <h3>ATT&amp;CK techniques</h3>
+          <ul>{lesson.attck.map((a) => <li key={a}><code>{a}</code></li>)}</ul>
         </>
       )}
     </>

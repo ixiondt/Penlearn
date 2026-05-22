@@ -1,0 +1,117 @@
+## In OT, the scan can break the plant
+
+Everything you learned about active scanning inverts here. An nmap scan that's
+routine on IT can crash a PLC that wasn't built to handle unexpected traffic — and
+a crashed PLC can mean a stopped (or unsafe) physical process. In OT, analysis is
+**passive by default**: you watch the traffic, you don't probe the devices.
+`ics-protocol-analysis.sh` does deep passive inspection of industrial protocols
+from a capture or a SPAN port.
+
+## Passive protocol inspection
+
+```bash
+./scripts/ics-protocol-analysis.sh analyze --pcap capture.pcap --protocol all --incident-id INC-2026-001
+```
+
+It dissects the major OT protocols — each on its well-known port — using Zeek's
+ICS analyzers and tshark's OT dissectors:
+
+```text
+Modbus        502     EtherNet/IP   44818
+DNP3          20000   OPC UA        4840
+S7comm        102     BACnet        47808
+IEC-104       2404
+```
+
+The analysis surfaces what's *commanded*, not just what's connected: which master
+is writing to which register/coil, function codes used, and unexpected write
+operations (a read-only HMI suddenly issuing writes is a red flag — that's
+`T0855 Unauthorized Command`).
+
+## Baseline, then detect deviations
+
+OT networks are far more static than IT — the same devices talk the same
+protocols to the same peers, day after day. That predictability is a gift for
+detection: establish a baseline, then anything new stands out.
+
+```bash
+# Capture normal operations once
+./scripts/ics-protocol-analysis.sh baseline --pcap baseline-capture.pcap --output baseline.json
+
+# Compare new traffic against it
+./scripts/ics-protocol-analysis.sh anomaly --pcap new-capture.pcap --baseline baseline.json
+```
+
+A new master, a new function code, a device talking a protocol it never used, a
+write where there were only reads — in a stable OT environment these deviations
+are high-signal, far more so than the same anomaly would be on a noisy IT LAN.
+
+## ICS ATT&CK lives in a separate namespace
+
+OT techniques use the **T0xxx** ICS ATT&CK matrix, not the enterprise Txxxx set:
+
+```text
+T0855  Unauthorized Command Message     unexpected writes to a controller
+T0846  Remote System Discovery          enumerating ICS devices on the wire
+T0856  Spoof Reporting Message          falsified sensor/status values to the HMI
+```
+
+`sigma-rule-builder.sh --technique T0855` generates detections for these. Mapping
+to the right namespace matters — an OT incident report using enterprise T-numbers
+signals the analyst didn't understand the environment.
+
+## Why passive is non-negotiable here
+
+```text
+IT mindset:  scan to discover ─▶ acceptable risk
+OT reality:  scan a fragile PLC ─▶ device fault ─▶ process stop ─▶ SAFETY event
+```
+
+The standing rule for OT is explicit: **no active scanning in OT networks.** The
+cost of a false move isn't a crashed server you reboot — it's potentially a
+physical-safety incident. So you capture and analyze passively, baseline the
+known-good, and hunt deviations. The next lesson covers what you're allowed to do
+when you *do* need to act.
+
+<Checkpoint
+  id="ot-protocols"
+  questions={[
+    {
+      q: "Why is OT analysis passive by default when IT recon is actively scanned?",
+      options: [
+        "Passive is just faster",
+        "An active scan can fault a fragile PLC, stopping the physical process and risking a safety event — the cost of a false move is physical, not a rebootable server",
+        "OT protocols can't be scanned",
+        "It's a licensing limitation",
+      ],
+      answer: 1,
+      why: "Unexpected traffic can crash control devices; in OT a fault can mean a process/safety incident, so analysis stays passive.",
+    },
+    {
+      q: "Why is baselining especially powerful in OT?",
+      options: [
+        "OT networks are random, so baselines catch everything",
+        "OT traffic is highly static (same devices, protocols, peers); against that stable baseline, a new master/function-code/write is high-signal",
+        "Baselines are required by Modbus",
+        "It replaces packet capture",
+      ],
+      answer: 1,
+      why: "OT's predictability makes deviations stand out far more than on a noisy IT network, so baseline-vs-anomaly is high-fidelity.",
+    },
+    {
+      q: "A read-only HMI suddenly issues Modbus write commands. How is it classified?",
+      options: [
+        "T1059 PowerShell",
+        "T0855 Unauthorized Command Message — an ICS ATT&CK (T0xxx) technique",
+        "It's normal behavior",
+        "T1190 enterprise exploitation",
+      ],
+      answer: 1,
+      why: "Unexpected writes to a controller map to T0855 in the ICS ATT&CK namespace, not the enterprise matrix.",
+    },
+  ]}
+/>
+
+## Next
+
+Final lesson: containing an OT incident under the three-stakeholder safety gate.

@@ -1,0 +1,112 @@
+## Same discipline, different clouds
+
+The AWS read-only approach transfers directly to Azure/Entra and GCP — only the
+APIs and the highest-signal misconfigurations change. The toolkit has a dedicated
+read-only enumerator for each, both gated and engagement-routed like `aws-enum.sh`.
+
+## Azure / Entra
+
+```bash
+./scripts/azure-enum.sh --engagement client-2026
+```
+
+Entra (formerly Azure AD) is the identity plane, and its findings are mostly about
+*who can do what*:
+
+```text
+users + MFA status        accounts without MFA = spray/AiTM targets
+directory roles            who holds Global Admin / Privileged Role Admin
+app registrations          over-permissioned apps, secrets in app configs
+RBAC assignments           Owner/Contributor at subscription scope
+storage accounts           public blob containers
+key vaults                 access policies / who can read secrets
+NSGs                       0.0.0.0/0 inbound rules
+```
+
+With `--full` (and a key) it can run **ROADrecon** for a comprehensive offline
+Entra analysis. The recurring critical finding: **users without MFA** — directly
+feeding the AiTM detection lesson on the defensive side.
+
+## GCP
+
+```bash
+./scripts/gcp-enum.sh --project myproject-prod --engagement client-2026
+```
+
+GCP's risk centers on IAM bindings and service accounts:
+
+```text
+project IAM + privesc      roles/owner, actAs, serviceAccountKeyCreate paths
+service accounts            keys, impersonation, default SA over-grant
+GCS buckets                 allUsers / allAuthenticatedUsers (public)
+compute                    public IPs, default SA scopes
+firewall                    0.0.0.0/0 ingress
+Cloud Functions             source + env secrets
+Secret Manager              who can access
+```
+
+`--full` adds **scoutsuite** for a multi-cloud posture report.
+
+## The cross-cloud pattern
+
+```text
+Provider   Identity plane         Top finding          Privesc primitive
+AWS        IAM                    public S3 / IMDSv1   PassRole + RunInstances
+Azure      Entra (Entra ID)       users without MFA    role / app over-grant
+GCP        Cloud IAM              public GCS           actAs / SA impersonation
+```
+
+Three clouds, one mental model: enumerate the **identity graph** to find who can
+become admin, then enumerate **exposed resources** (public storage, open
+firewalls, plaintext secrets). The privesc primitive differs (PassRole vs role
+assignment vs service-account impersonation) but the question is identical —
+*which low-priv principal has a path to control?*
+
+## Multi-cloud tooling
+
+For environments spanning providers, `scoutsuite` (multi-cloud) gives one
+posture view, while the per-cloud scripts go deeper on each. Start broad with
+ScoutSuite, drill in with the dedicated enumerators.
+
+<Checkpoint
+  id="azure-gcp-enum"
+  questions={[
+    {
+      q: "What's the recurring critical finding in Entra enumeration, and which defensive lesson does it feed?",
+      options: [
+        "Open ports → nmap",
+        "Users without MFA → directly enabling password spray and AiTM session-theft (the AiTM detection lesson)",
+        "Expired certs → TLS lesson",
+        "Public buckets → only a GCP issue",
+      ],
+      answer: 1,
+      why: "No-MFA accounts are the prime target for spraying and AiTM token theft; it's the bridge to the defensive AiTM lesson.",
+    },
+    {
+      q: "What's the unifying question across AWS, Azure, and GCP enumeration?",
+      options: [
+        "Which region is cheapest",
+        "Which low-priv principal has a path to control (privesc), plus what resources are exposed — the identity graph + exposed resources",
+        "How many VMs are running",
+        "Which OS each host uses",
+      ],
+      answer: 1,
+      why: "All three reduce to: enumerate the identity graph for privesc paths and the resources for exposure; only the primitive differs.",
+    },
+    {
+      q: "GCP's signature privilege-escalation primitive is:",
+      options: [
+        "PassRole + RunInstances",
+        "Service-account impersonation / actAs (and SA key creation)",
+        "Entra role assignment",
+        "S3 bucket policy",
+      ],
+      answer: 1,
+      why: "GCP privesc commonly rides service-account impersonation (actAs) and key creation; AWS uses PassRole, Azure uses role/app grants.",
+    },
+  ]}
+/>
+
+## Next
+
+Next: Kubernetes recon and assessing container escape from inside a pod.

@@ -1,0 +1,115 @@
+## Eradication fails when you miss one foothold
+
+The hardest part of incident response isn't finding the malware — it's being sure
+you found *all* of it. An attacker who's worth worrying about plants multiple
+persistence mechanisms so that cleaning one leaves another. Miss a single
+scheduled task or a poisoned cron job and they're back tomorrow. Persistence
+auditing is the systematic sweep of every place code can be made to run again.
+
+`persistence-audit.sh` enumerates those locations across Linux and Windows.
+
+## Running it
+
+```bash
+./scripts/persistence-audit.sh --remote admin@server --incident-id INC-2026-001
+./scripts/persistence-audit.sh --os windows --remote admin@host --incident-id INC-2026-001
+```
+
+It checks the full surface, not just the obvious spots:
+
+```text
+Linux                          Windows
+─────                          ───────
+cron (user/system/at)          scheduled tasks
+systemd units + timers         registry Run / RunOnce keys
+init.d / rc.local              services (incl. unquoted service paths)
+shell rc files / profiles      IFEO debugger hijacks
+SUID/SGID + capabilities       COM object hijacking
+world-writable PATH dirs       PowerShell profiles
+XDG autostart                  Alternate Data Streams (ADS)
+MOTD scripts                   WMI event subscriptions
+SSH authorized_keys            startup folder
+```
+
+The less-obvious ones (capabilities, world-writable PATH, IFEO debugger, COM
+hijacking, ADS) are exactly where a competent attacker hides, because the
+obvious ones (cron, Run keys) are the first place responders look.
+
+## Evidence before remediation — always
+
+Persistence auditing is *investigation*, not cleanup. You enumerate and document
+first; you don't delete as you go. Premature deletion destroys the evidence you
+need to scope the incident (when was it planted? what does it call out to?) and
+to be sure you've found everything. The standing rule is absolute:
+
+```text
+collect (forensics-collect) ─▶ enumerate (persistence-audit) ─▶ scope ─▶ THEN eradicate
+```
+
+## OT-aware
+
+On industrial networks the script also checks OT-specific persistence:
+engineering-workstation project files, historian exports, jump-host keys, SCADA
+services, and IT/OT firewall rule changes — the places persistence hides in a
+control-system environment (more in the ICS module).
+
+## Why "rebuild when in doubt"
+
+```text
+how many persistence mechanisms did the attacker plant?
+   │
+   ├─ you found N ──▶ are you certain there's no N+1?
+   │                         │
+   │                    rarely certain
+   ▼
+manual cleanup miss-rate > clean rebuild miss-rate
+```
+
+This is why the toolkit's standing rule is *rebuild when in doubt*. Persistence
+auditing tells you the scope and the techniques (which feed detection rules), but
+when you can't be confident you've found every foothold, a clean rebuild from
+known-good media beats hunting for a foothold you might have missed.
+
+<Checkpoint
+  id="persistence-audit"
+  questions={[
+    {
+      q: "Why does persistence-audit.sh check obscure locations (capabilities, IFEO, COM hijacking, ADS) and not just cron/Run keys?",
+      options: [
+        "To make the scan slower",
+        "Competent attackers hide in the less-obvious spots precisely because responders check the obvious ones first; missing one foothold means re-compromise",
+        "Those locations are required by the OS",
+        "Only Windows needs them",
+      ],
+      answer: 1,
+      why: "Eradication fails if any mechanism is missed; attackers favor obscure persistence, so the audit must cover the full surface.",
+    },
+    {
+      q: "Why must you enumerate-and-document persistence before deleting anything?",
+      options: [
+        "Deleting is slower",
+        "Evidence before remediation: premature deletion destroys scoping evidence and the assurance that you've found everything",
+        "The OS forbids deletion during incidents",
+        "There's no reason — delete on sight",
+      ],
+      answer: 1,
+      why: "Persistence auditing is investigation; deleting as you go loses timeline/scope evidence and risks leaving other footholds.",
+    },
+    {
+      q: "Why is 'rebuild when in doubt' the standing rule?",
+      options: [
+        "Rebuilds are cheaper",
+        "When you can't be certain every foothold was found, manual cleanup's miss rate exceeds a clean rebuild from known-good media",
+        "Rebuilding is always required by law",
+        "Because audits never find persistence",
+      ],
+      answer: 1,
+      why: "Uncertainty about full attacker access resolves toward rebuild — manual cleanup misses more often than a clean restore.",
+    },
+  ]}
+/>
+
+## Next
+
+Next: containing the incident without destroying the volatile evidence you just
+collected.

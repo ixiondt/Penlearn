@@ -1,0 +1,102 @@
+## Defending the name, not the network
+
+Most recon points outward at a target. Brand protection points the same
+techniques *inward* — at attackers impersonating **you**. Before a phishing
+campaign lands in inboxes, the attacker registers a lookalike domain, stands up
+infrastructure, and often fronts it behind Cloudflare to hide the origin.
+Catching that infrastructure early — ideally before the emails go out — is a
+defensive win.
+
+`phish-infra-check.sh` enumerates infrastructure impersonating your domain. It's
+passive (queries public records and third parties, never the attacker's host
+beyond a normal resolution), so it's safe to run on a schedule.
+
+## Running a brand sweep
+
+```bash
+./scripts/phish-infra-check.sh acme.com --ct-days 30
+```
+
+It chains several lookalike-discovery techniques:
+
+- **dnstwist permutations** — typosquats and homoglyphs (acme.com → acrne.com,
+  acme-login.com, аcme.com with a Cyrillic а). Falls back to a pure-bash
+  generator if dnstwist isn't installed
+- **crt.sh CT-log search** — newly-issued certs for names resembling yours
+  (attackers get TLS certs too, and CT logs them)
+- **DNS resolution** — which permutations actually resolve (live vs. parked)
+- **Cloudflare-fronting check** — NS-pattern match; a lookalike fronted by
+  Cloudflare is a strong **evilginx/AiTM** fingerprint (attackers hide origin IPs
+  behind the CDN)
+- **Shodan favicon hash** (mmh3) — finds hosts serving *your* favicon on *not
+  your* infrastructure (cloned login pages)
+- **urlscan.io history** — prior scans of the lookalike
+
+## Reading the result
+
+The script exits **2 if live impersonation is detected** — which makes it a clean
+signal for automation:
+
+```text
+phish-infra-check.sh (nightly cron)
+        │  exit 2 = live lookalike found
+        ▼
+operator review ─▶ osint-passive.sh --ioc <candidate>   (enrich)
+        │
+        ▼
+confirmed malicious ─▶ containment.sh block-ioc / takedown request
+```
+
+A lookalike that (a) resolves, (b) serves your favicon, and (c) is Cloudflare-
+fronted is almost never coincidence — that's a staged credential-harvesting site.
+
+## Why favicon hashing works
+
+A phishing kit clones your login page wholesale, favicon included. The favicon's
+mmh3 hash is a fingerprint; searching Shodan for that hash surfaces every host
+serving it. Legitimate matches are your own infrastructure — anything else on an
+unfamiliar IP is a clone worth investigating.
+
+<Checkpoint
+  id="brand-protection"
+  questions={[
+    {
+      q: "A lookalike domain resolves, serves your favicon, and its nameservers are Cloudflare. Why is that significant?",
+      options: [
+        "Cloudflare means it's safe",
+        "It's a strong evilginx/AiTM fingerprint — a cloned login page hiding its origin behind the CDN; almost never coincidence",
+        "Favicons are random",
+        "It only matters if the TLS cert is expired",
+      ],
+      answer: 1,
+      why: "Cloned favicon + live resolution + Cloudflare-fronting (origin hiding) together fingerprint a staged credential-harvesting / AiTM site.",
+    },
+    {
+      q: "Why can phish-infra-check.sh run safely on a nightly cron?",
+      options: [
+        "It exploits the lookalike automatically",
+        "It's passive — public records (CT, dnstwist, Shodan, urlscan) and normal DNS resolution, not intrusive probing of the attacker host",
+        "It requires written authorization each run",
+        "It only works business hours",
+      ],
+      answer: 1,
+      why: "It queries third-party/public sources and resolves DNS; nothing intrusive, so scheduling it is fine and the exit-2 signal drives review.",
+    },
+    {
+      q: "How does favicon hashing surface cloned sites?",
+      options: [
+        "It scans your own server only",
+        "A phishing kit copies your favicon; its mmh3 hash is a fingerprint, and a Shodan search for that hash lists every host serving it — clones show up on unfamiliar IPs",
+        "It checks DNS TTLs",
+        "It brute-forces subdomains",
+      ],
+      answer: 1,
+      why: "The favicon hash fingerprints your page; hosts serving it that aren't yours are clones.",
+    },
+  ]}
+/>
+
+## Next
+
+That completes passive recon. Next module: **active scanning** — where
+authorization becomes mandatory.

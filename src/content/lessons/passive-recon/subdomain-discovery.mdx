@@ -1,0 +1,104 @@
+## Map the attack surface before you touch it
+
+You can't assess what you can't see. Subdomain discovery builds the inventory of
+a target's externally-reachable names — and the bias is **passive first**:
+gather everything from third-party data sources before sending a single packet at
+the target. Passive enumeration needs no authorization because you're querying
+public records, not the target.
+
+`subdomain-enum.sh` runs that flow and escalates to active techniques only when
+you ask.
+
+## Passive-only
+
+```bash
+./scripts/subdomain-enum.sh example.com --passive-only --engagement client-2026
+```
+
+This pulls from passive sources that never hit the target directly:
+
+- **subfinder** — passive DNS aggregation across dozens of sources
+- **amass** (passive mode) — OSINT subdomain graph
+- **Certificate Transparency logs** — every TLS cert ever issued names its hosts;
+  the deep-dive parses SAN fields and merges them into the list
+- **SecurityTrails** (with an API key) — historical DNS: A-record history with
+  IPs/orgs/dates, and NS history
+
+CT logs are the highest-yield passive source — issuing a cert publishes the
+hostname forever, so dev/staging/internal names leak there constantly.
+
+## Escalating to active
+
+Drop `--passive-only` and the script adds techniques that *do* touch the
+target — so these require authorization:
+
+- **DNS zone transfer (AXFR)** against every nameserver — a misconfigured DNS
+  server hands you the entire zone in one request
+- **Reverse-DNS sweep** of discovered /24 ranges — PTR records reveal neighbors
+  you didn't find by name
+
+```bash
+./scripts/subdomain-enum.sh example.com --engagement client-2026
+```
+
+## Why order matters
+
+```text
+passive (no auth)                 active (auth required)
+─────────────────                 ──────────────────────
+subfinder / amass                 zone transfer (AXFR)
+CT logs (SAN extraction)          reverse-DNS sweep
+SecurityTrails history            (direct queries to target NS)
+        │                                  │
+        └──────── merged, deduped subdomain list ────────┘
+                              │
+                              ▼
+                     active-recon (nmap) on in-scope hosts
+```
+
+Passive recon is free intelligence with zero footprint and zero authorization
+burden. Exhaust it first; you'll often have most of the surface before active
+recon even begins — and the active phase is then targeted, not noisy.
+
+<Checkpoint
+  id="subdomain-discovery"
+  questions={[
+    {
+      q: "Why is Certificate Transparency such a high-yield passive source?",
+      options: [
+        "It lists open ports",
+        "Every issued TLS cert publishes its hostnames permanently — dev/staging/internal names leak there",
+        "It performs zone transfers",
+        "It only shows the apex domain",
+      ],
+      answer: 1,
+      why: "CT logs are an append-only public record of issued certs; hostnames in SANs are exposed forever, often revealing non-public subdomains.",
+    },
+    {
+      q: "Which subdomain-enum.sh techniques require authorization?",
+      options: [
+        "subfinder and CT log lookups",
+        "Zone transfer (AXFR) and reverse-DNS sweep — they query the target's infrastructure directly",
+        "SecurityTrails history",
+        "None — all subdomain enumeration is passive",
+      ],
+      answer: 1,
+      why: "Passive sources query third parties; AXFR and reverse-DNS sweeps touch the target's nameservers/ranges, so they need authorization.",
+    },
+    {
+      q: "What's the practical payoff of exhausting passive recon first?",
+      options: [
+        "It's slower but more thorough",
+        "Zero footprint + no authorization burden, and you often have most of the surface before active recon, making the active phase targeted not noisy",
+        "It finds open ports",
+        "It's required by nmap",
+      ],
+      answer: 1,
+      why: "Passive recon is free, silent intelligence; doing it first means the noisy, authorized active phase is focused on a known surface.",
+    },
+  ]}
+/>
+
+## Next
+
+Next: hunting for phishing infrastructure that impersonates *your* domain.

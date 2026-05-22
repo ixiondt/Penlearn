@@ -1,0 +1,111 @@
+## Move quietly, in the right order
+
+BloodHound found the path; now you walk it. You almost always have several ways
+to execute on a remote host with valid credentials — and they are *not*
+equivalent in how much noise they make. The discipline is to pick the **quietest
+technique that works**, not the most familiar. `data/references/redteam-ops-reference.md`
+carries the operational detail.
+
+## The hierarchy
+
+From quietest to loudest:
+
+```text
+WinRM   ▸ designed for remote mgmt, blends in; evil-winrm (Kerberos-aware)
+SMB     ▸ admin shares + service exec; crackmapexec sweeps
+WMI     ▸ no new service, lives in normal admin traffic
+DCOM    ▸ niche, less monitored objects (MMC20, ShellWindows)
+RDP     ▸ interactive, very visible, leaves profile artifacts
+PsExec  ▸ classic but loud — creates a service, drops a binary, screams in logs
+```
+
+Default to the top of the list. PsExec works everywhere, which is exactly why
+every EDR watches for it — service creation (Event 7045) plus a dropped binary is
+a textbook detection.
+
+## Tools
+
+```bash
+# WinRM with captured creds (or a hash / Kerberos ticket)
+evil-winrm -i 10.0.0.20 -u svc_backup -p 'Password1'
+
+# Sweep where a credential is valid, test exec, across a /24
+crackmapexec smb 10.0.0.0/24 -u svc_backup -p 'Password1'
+crackmapexec winrm 10.0.0.20 -u svc_backup -H <nthash>   # pass-the-hash
+```
+
+`crackmapexec` is the swiss-army sweeper — it tells you *where* a credential
+works before you commit to a single host, so you move deliberately rather than
+spraying loudly.
+
+## Choosing per hop
+
+```text
+which protocols are open on the target?  (from nmap/enumeration)
+   │
+   ├─ 5985/5986 WinRM open + creds valid ──▶ evil-winrm   (quietest)
+   ├─ 445 SMB + local admin ──────────────▶ WMI/SMB exec
+   └─ only 3389 RDP ──────────────────────▶ RDP (accept the noise, document it)
+```
+
+The choice is constrained by what's reachable (from the recon phase) and what the
+credential grants. Within those constraints, go as quiet as possible.
+
+## The defender's mirror
+
+Every technique here has a detection, which is the point of teaching the order:
+
+```text
+PsExec  → Event 7045 (service install) + binary drop
+WMI     → Event 4688 wmiprvse.exe spawning children
+WinRM   → 5985 traffic, wsmprovhost.exe
+RDP     → Event 4624 type 10, profile artifacts
+```
+
+An operator picking quiet tools and a defender writing detections are the same
+knowledge from two sides — `sigma-rule-builder.sh` generates rules for these
+movement techniques (T1021.x), and the lateral-movement edges in BloodHound show
+where they're even possible.
+
+<Checkpoint
+  id="lateral-movement"
+  questions={[
+    {
+      q: "Why prefer WinRM/WMI over PsExec when both would work?",
+      options: [
+        "PsExec is deprecated",
+        "PsExec creates a service (Event 7045) and drops a binary — a textbook detection; WinRM/WMI blend into normal admin traffic",
+        "WinRM is faster",
+        "PsExec needs Domain Admin",
+      ],
+      answer: 1,
+      why: "The goal is the quietest technique that works; PsExec is reliable but loud, so it's last resort, not default.",
+    },
+    {
+      q: "What does crackmapexec give you before you commit to a host?",
+      options: [
+        "A full report",
+        "A sweep showing where a credential is valid (and whether exec works) across a range — so you move deliberately, not by loud spraying",
+        "A Kerberos ticket",
+        "A BloodHound graph",
+      ],
+      answer: 1,
+      why: "CME maps where creds work across many hosts, letting you pick the right single target instead of hammering everything.",
+    },
+    {
+      q: "What two constraints decide which lateral-movement technique you can use on a given hop?",
+      options: [
+        "Time of day and OS version",
+        "Which protocols/ports are reachable on the target (from recon) and what the credential actually grants",
+        "The WAF vendor and TLS version",
+        "The report format",
+      ],
+      answer: 1,
+      why: "You're limited by reachable services and credential rights; within those, you choose the quietest option.",
+    },
+  ]}
+/>
+
+## Next
+
+That completes the AD track. Next: read-only enumeration of cloud and Kubernetes.

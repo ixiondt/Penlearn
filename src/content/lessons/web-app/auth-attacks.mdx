@@ -1,0 +1,109 @@
+## Breaking the front door
+
+Injection abuses what an app *does* with input. Auth attacks abuse who the app
+*thinks you are*. Get authentication wrong and every authorization control behind
+it is moot. This lesson covers the three highest-yield modern targets: JWTs,
+OAuth flows, and session handling. `data/references/auth-attack-checklist.md`
+carries the full payload set.
+
+## JWT attacks
+
+A JWT is signed, not encrypted — its security rests entirely on signature
+verification, which is exactly what's often broken:
+
+```text
+alg:none        set "alg":"none", strip the signature — does the server accept it?
+key confusion   RS256→HS256: sign with the public key as the HMAC secret
+kid injection   point "kid" at a file/SQLi to control the verification key
+weak HMAC       brute-force a guessable HS256 secret offline
+jwk / jku       embed/point to an attacker key the server trusts
+```
+
+`jwt_tool` automates all of these. The defensive lesson: **pin the algorithm** on
+verify (`algorithms: ["HS256"]`) and use a strong secret — the same rule the
+toolkit's own auth code follows.
+
+## OAuth 2.0 / OIDC
+
+OAuth's complexity is its attack surface. The classics:
+
+```text
+redirect_uri bypass   redirect_uri=https://evil.com → token sent to attacker
+state CSRF            missing/unchecked state param → login CSRF
+PKCE bypass          downgrade or omit PKCE on a public client
+token leakage        tokens in URL/referer/logs
+scope escalation     request broader scopes than the client should have
+```
+
+`redirect_uri` validation is the heart of it — loose matching (substring,
+open-redirect-on-the-allowed-host) lets an attacker capture the authorization
+code or token.
+
+## Sessions & access control
+
+```text
+session fixation     attacker-set session id survives login
+predictable tokens   sequential/Math.random session ids
+missing rotation     session id unchanged across privilege change
+IDOR                 /api/orders/1001 → change to 1002 (no ownership check)
+mass assignment      add "role":"admin" to a profile-update body
+```
+
+## Why auth is the highest-leverage target
+
+```text
+authentication (who are you)
+        │  ← break here
+        ▼
+authorization (what may you do)  ← everything below trusts the answer above
+        │
+        ▼
+the entire application
+```
+
+A SQLi might leak one table. An auth bypass makes you any user — often admin —
+and turns every other control into theater. That's why a JWT `alg:none` or a
+`redirect_uri` bypass is frequently the whole engagement.
+
+<Checkpoint
+  id="auth-attacks"
+  questions={[
+    {
+      q: "A JWT library accepts a token with \"alg\":\"none\" and no signature. Why is that critical?",
+      options: [
+        "It's slower",
+        "Anyone can forge a valid-looking token for any user (incl. admin) since no signature is verified — a full auth bypass",
+        "It only affects logging",
+        "Tokens expire faster",
+      ],
+      answer: 1,
+      why: "alg:none means no signature check; an attacker mints arbitrary identities. Defense: pin the algorithm on verify.",
+    },
+    {
+      q: "Why is redirect_uri validation the heart of OAuth security?",
+      options: [
+        "It sets the theme",
+        "Loose matching lets an attacker redirect the authorization code/token to a host they control, capturing the victim's credentials",
+        "It's only for logging",
+        "It controls token expiry",
+      ],
+      answer: 1,
+      why: "If redirect_uri can point to attacker infrastructure, the code/token is delivered to the attacker — game over.",
+    },
+    {
+      q: "Why are auth attacks often higher-leverage than injection?",
+      options: [
+        "They're easier to find",
+        "Authorization trusts authentication; breaking auth makes you any user (often admin), nullifying every control below it",
+        "They never need authorization to test",
+        "They only work on APIs",
+      ],
+      answer: 1,
+      why: "An auth bypass undermines the entire trust chain — every authz decision below it relies on identity being correct.",
+    },
+  ]}
+/>
+
+## Next
+
+Next: when a WAF stands between you and the app — detection and bypass.

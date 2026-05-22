@@ -1,0 +1,112 @@
+## One root cause, many faces
+
+Injection is what happens when user input crosses a trust boundary into an
+interpreter — a SQL engine, a shell, a template renderer, the browser's DOM.
+The interpreter can't tell attacker data from developer code, so the data
+*becomes* code. SQLi, XSS, SSTI, command injection, and SSRF are all the same
+bug wearing different clothes. `data/references/webapp-attack-checklist.md` is
+the field reference with payloads and bypasses for each.
+
+## SQL injection
+
+Three detection styles, in order of stealth:
+
+```text
+Boolean-blind:  ' AND 1=1 --   vs   ' AND 1=2 --     (page differs)
+Time-blind:     ' AND SLEEP(5) --                    (response delays)
+Union:          ' UNION SELECT username,password FROM users --
+Error-based:    '                                    (DB error leaks structure)
+```
+
+Always parameterize on the defensive side — string concatenation into SQL is the
+original sin. `sqlmap` automates detection and exploitation once you've found an
+injectable parameter.
+
+## XSS
+
+The interpreter is the browser. Three contexts:
+
+```text
+Reflected:  input echoed in the response       ?q=<script>alert(1)</script>
+Stored:     input persisted then rendered       comment body, profile name
+DOM:        client-side JS sinks                 location.hash → innerHTML
+```
+
+The fix is contextual output encoding + CSP. Note how this connects to the
+reporting lesson — a finding's evidence may *contain* a live XSS payload, which is
+why the report generator escapes everything.
+
+## SSTI
+
+When user input reaches a server-side template engine, you get code execution,
+not just markup:
+
+```text
+{{7*7}} → 49        confirms template evaluation (Jinja2/Twig/etc.)
+then escalate to {{ config }} / RCE gadgets per engine
+```
+
+## Command injection & SSRF
+
+```text
+Command injection:  ; id     | id     `id`     $(id)     (input → shell)
+SSRF:               url=http://169.254.169.254/latest/meta-data/   (server fetches attacker-chosen URL)
+```
+
+SSRF against cloud metadata is especially dangerous — it can hand an attacker
+temporary cloud credentials. The `web-fuzzer.sh` SSRF probe from the previous
+lesson tests exactly this.
+
+## The unifying mental model
+
+```text
+untrusted input ──crosses──▶ interpreter ──interprets as──▶ code
+   (defense: validate)        (SQL/shell/template/DOM)        (impact: RCE/data/creds)
+```
+
+Find every place input reaches an interpreter; that's the injection surface. The
+defense is always the same shape: keep data as data (parameterize, encode,
+sandbox), never let it reach the interpreter as code.
+
+<Checkpoint
+  id="injection"
+  questions={[
+    {
+      q: "What's the single root cause shared by SQLi, XSS, SSTI, and command injection?",
+      options: [
+        "Weak passwords",
+        "Untrusted input crosses into an interpreter that can't distinguish data from code, so the data is executed as code",
+        "Missing TLS",
+        "Outdated libraries",
+      ],
+      answer: 1,
+      why: "All injection is the same bug: data reaching an interpreter (SQL/browser/template/shell) and being treated as code.",
+    },
+    {
+      q: "A parameter returns `49` when you submit `{{7*7}}`. What did you find?",
+      options: [
+        "SQL injection",
+        "Server-side template injection — the input was evaluated by a template engine, which often escalates to RCE",
+        "An open redirect",
+        "Reflected XSS only",
+      ],
+      answer: 1,
+      why: "`{{7*7}}`→49 proves the template engine evaluated the input (SSTI), a frequent path to server-side code execution.",
+    },
+    {
+      q: "Why is SSRF to the cloud metadata endpoint (169.254.169.254) especially severe?",
+      options: [
+        "It crashes the server",
+        "It can return temporary cloud credentials, escalating a web bug into cloud account access",
+        "It only reveals the hostname",
+        "It's actually harmless",
+      ],
+      answer: 1,
+      why: "Cloud metadata can expose IAM role credentials; SSRF to it turns a server-side fetch into cloud compromise.",
+    },
+  ]}
+/>
+
+## Next
+
+Next: attacking authentication itself — JWT, OAuth, and sessions.

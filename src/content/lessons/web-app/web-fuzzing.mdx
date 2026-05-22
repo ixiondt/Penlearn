@@ -1,0 +1,108 @@
+## You can't test what you haven't found
+
+A web app's real attack surface is rarely the links in the nav bar. It's the
+`/admin` panel nobody linked, the `/api/v1/` endpoints, the `.git/` directory
+that shipped by accident, the GraphQL endpoint with introspection left on.
+Content discovery and fuzzing find that hidden surface so the rest of the
+assessment has something to work on.
+
+`web-fuzzer.sh` and `webapp-scanner.sh` cover discovery and rapid assessment.
+
+## Content discovery
+
+```bash
+./scripts/web-fuzzer.sh https://example.com --api-discovery --engagement client-2026
+```
+
+Under the hood it drives the standard discovery tools and adds targeted checks:
+
+- **gobuster / ffuf** — directory and file brute-forcing against wordlists
+- **nuclei** — templated checks for known exposures and misconfigurations
+- **SSRF parameter probing** — tries ~22 common parameter names against a cloud
+  metadata endpoint (the classic `169.254.169.254` test)
+- **GraphQL introspection** — discovers GraphQL endpoints and dumps the schema if
+  introspection is enabled (it usually shouldn't be in prod)
+- **File-upload extension testing** — throws 21 dangerous extensions at discovered
+  upload endpoints to find weak server-side validation
+
+## Rapid assessment
+
+`webapp-scanner.sh` is the quick triage pass:
+
+```bash
+./scripts/webapp-scanner.sh https://example.com --engagement client-2026          # quick
+./scripts/webapp-scanner.sh https://example.com --full --engagement client-2026   # + rate-limit, API versions
+```
+
+Quick mode checks security headers, CORS, cookie flags, info disclosure, SQLi/
+XSS/SSTI *indicators*, auth-endpoint discovery, and open-redirect tests. Full mode
+adds rate-limiting assessment and API version enumeration. Output is a
+severity-tagged finding list.
+
+## Discovery feeds everything else
+
+```text
+web-fuzzer.sh / webapp-scanner.sh
+        │ discover endpoints, params, uploads, GraphQL
+        ▼
+injection / auth / WAF-bypass testing on what was found
+        │
+        ▼
+findings.json ─▶ risk-scoring ─▶ report
+```
+
+Discovery isn't the assessment — it's what makes the assessment possible. An
+injection test needs a parameter; an IDOR test needs an endpoint; an upload
+exploit needs an upload form. Fuzzing finds the inputs the rest of the web track
+attacks.
+
+This lesson's lab (`04-dvwa-juice`) gives you DVWA + Juice Shop + a small vuln-API
+to practice against safely.
+
+<Checkpoint
+  id="web-fuzzing"
+  questions={[
+    {
+      q: "Why is content discovery the foundation of the web track rather than an optional step?",
+      options: [
+        "It's required by nuclei",
+        "Injection/IDOR/upload tests each need an input to target; discovery finds the hidden endpoints, params, and forms the rest of the track attacks",
+        "It generates the report",
+        "It replaces manual testing",
+      ],
+      answer: 1,
+      why: "The real attack surface is mostly unlinked; without discovery you have nothing to inject into, enumerate, or abuse.",
+    },
+    {
+      q: "What does web-fuzzer.sh's SSRF parameter probing look for?",
+      options: [
+        "Open ports",
+        "Common parameter names that, when pointed at the cloud metadata endpoint (169.254.169.254), reveal a server-side request forgery",
+        "SQL errors",
+        "Expired certs",
+      ],
+      answer: 1,
+      why: "It tries ~22 likely SSRF param names against the cloud metadata IP — a fast way to flag SSRF on fetch-style parameters.",
+    },
+    {
+      q: "GraphQL introspection is enabled on a production endpoint. Why does that matter?",
+      options: [
+        "It speeds up the API",
+        "It hands an attacker the full schema — every type, query, and mutation — mapping the entire API surface for free",
+        "It's required by GraphQL",
+        "It only affects REST",
+      ],
+      answer: 1,
+      why: "Introspection in prod leaks the complete API schema, removing the attacker's need to guess endpoints and fields.",
+    },
+  ]}
+/>
+
+## Lab
+
+`04-dvwa-juice` — DVWA, Juice Shop, and a JWT/IDOR/SSRF vuln-API to practice
+discovery and the injection/auth lessons that follow.
+
+## Next
+
+Next: the injection class — SQLi, XSS, SSTI, command injection, SSRF.

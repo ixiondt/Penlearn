@@ -1,0 +1,115 @@
+## Kerberos hands out crackable tickets
+
+Active Directory authentication runs on Kerberos, and two of its features —
+service tickets and pre-authentication — leak crackable material to any
+authenticated (and sometimes unauthenticated) user. Kerberoasting and AS-REP
+roasting are the bread-and-butter AD attacks because they need no exploit, just a
+valid (or absent) login and patience with a GPU.
+
+## Kerberoasting (T1558.003)
+
+Any domain user can request a service ticket (TGS) for any account that has a
+Service Principal Name (SPN). Part of that ticket is encrypted with the service
+account's password hash — so you request it, extract it, and crack offline:
+
+```bash
+# Linux-side, from the toolkit
+impacket-GetUserSPNs -request -dc-ip 10.0.0.10 corp.local/analyst:Password1
+
+# Crack the RC4 TGS hash offline
+hashcat -m 13100 spns.hash rockyou.txt
+```
+
+The juicy targets are service accounts (SQL, IIS, backup) — often with old,
+weak, never-rotated passwords and high privilege. RC4-encrypted TGS responses
+(`$krb5tgs$23$`) are the crackable ones.
+
+## AS-REP roasting (T1558.004)
+
+Accounts with "Do not require Kerberos pre-authentication" set will hand out an
+AS-REP encrypted with their password hash to *anyone* — no credentials needed:
+
+```bash
+impacket-GetNPUsers -dc-ip 10.0.0.10 -request corp.local/ -usersfile users.txt
+hashcat -m 18200 asrep.hash rockyou.txt
+```
+
+This is why even a username list (from the SMTP/SNMP enumeration lesson) is
+dangerous — no-preauth accounts are crackable with nothing but the name.
+
+## The defensive other side
+
+These attacks are loud in the right logs. On defense:
+
+```text
+Kerberoasting   Event 4769 (TGS request) with encryption type 0x17 (RC4) at volume
+AS-REP roast    Event 4768 with preauth-not-required accounts
+```
+
+`sigma-rule-builder.sh --technique T1558.003` (and `.004`) generates the
+detection rules — including the **RC4 TGS volume** heuristic, since one RC4 ticket
+is normal but a burst is roasting.
+
+## Why these are the go-to AD attacks
+
+```text
+valid user (or none)
+   │
+   ├─ request TGS for SPN accounts ─▶ crack RC4 hash ─▶ service-account creds
+   └─ request AS-REP for no-preauth ─▶ crack hash ─▶ user creds
+                                              │
+                                              ▼
+                              often high-priv → escalate toward DA
+```
+
+No memory corruption, no payload, no AV to dodge — just protocol features used as
+intended against weak passwords. That's what makes them reliable and why service-
+account password hygiene is the real fix.
+
+<Checkpoint
+  id="kerberos-attacks"
+  questions={[
+    {
+      q: "What makes Kerberoasting possible without any exploit?",
+      options: [
+        "A buffer overflow in the DC",
+        "Any domain user can request a service ticket for an SPN account; part of it is encrypted with that account's password hash, which you crack offline",
+        "Default admin passwords",
+        "An open SMB share",
+      ],
+      answer: 1,
+      why: "It abuses a normal Kerberos feature — TGS issuance — to obtain crackable hash material for SPN (service) accounts.",
+    },
+    {
+      q: "Why is AS-REP roasting possible with no credentials at all?",
+      options: [
+        "It uses a zero-day",
+        "Accounts with pre-authentication disabled return an AS-REP encrypted with their password hash to any requester — just a username is needed",
+        "It requires domain admin",
+        "It only works on the DC itself",
+      ],
+      answer: 1,
+      why: "No-preauth accounts hand out crackable AS-REPs to anyone, so a username list alone enables the attack.",
+    },
+    {
+      q: "On defense, what distinguishes roasting from normal Kerberos traffic?",
+      options: [
+        "Nothing — it's invisible",
+        "A volume of Event 4769 TGS requests using RC4 (0x17) encryption — one is normal, a burst signals roasting",
+        "Failed logon events only",
+        "DNS queries",
+      ],
+      answer: 1,
+      why: "Roasting generates many RC4 TGS requests; the volume heuristic (sigma-rule-builder T1558.003) is the detection.",
+    },
+  ]}
+/>
+
+## Lab
+
+`05-adlab` (GOAD-derived Windows domain) — practice Kerberoasting, AS-REP, and the
+BloodHound paths from the next lesson against a domain you control.
+
+## Next
+
+Next: mapping the whole domain's attack paths with BloodHound.

@@ -1,0 +1,109 @@
+## AD is a graph, and attackers think in paths
+
+A domain isn't a list of accounts — it's a graph of relationships: who can log
+on where, who owns which object's ACL, which group nests in which, who can read
+LAPS passwords. Defenders see an org chart; attackers see a *path* from the user
+they've compromised to Domain Admin. BloodHound makes that graph explicit so you
+can find the shortest path before an attacker does.
+
+The toolkit wraps collection and querying so it runs entirely Linux-side.
+
+## Collect the graph
+
+```bash
+./scripts/bloodhound-import.sh collect \
+  --domain corp.local --dc 10.0.0.10 \
+  --username analyst --password-file ~/.bh-pw --engagement client-2026
+```
+
+This runs `bloodhound.py` (no Windows or SharpHound needed), gathers sessions,
+ACLs, group memberships, trusts, GPO links, and LAPS readers, then imports the
+result into a local **Neo4j** graph database. `status` and `reset` subcommands
+manage the DB.
+
+## Query the attack paths
+
+`bloodhound-query.sh` ships 19 pre-built Cypher queries so you don't hand-write
+graph traversals:
+
+```bash
+./scripts/bloodhound-query.sh --query shortest-path-to-da --output paths.json
+```
+
+The high-value ones:
+
+```text
+shortest-path-to-da        the headline: from owned → Domain Admin
+kerberoastable             SPN accounts (feed the previous lesson)
+asreproastable             no-preauth accounts
+unconstrained-delegation   hosts that cache TGTs → DA impersonation
+rbcd                       resource-based constrained delegation abuse
+acl-abuse                  GenericAll/WriteDACL/Owns edges to escalate
+gpo-control               who can edit GPOs (push code domain-wide)
+laps-readers               who can read local-admin passwords
+```
+
+## Why the graph beats a checklist
+
+```text
+checklist view:                 graph view:
+"analyst is a normal user"      analyst ──MemberOf──▶ Helpdesk
+"Helpdesk is low-priv"          Helpdesk ──GenericAll──▶ SVC_BACKUP
+"SVC_BACKUP runs a service"     SVC_BACKUP ──MemberOf──▶ Backup Operators
+                                Backup Operators ──CanRDP──▶ DC01  ⇒ DA
+```
+
+No single step looks dangerous in isolation. The *path* is the vulnerability —
+and that's exactly what a checklist audit misses but a graph query surfaces in
+one hop. You report the path, and the fix is to break any edge along it.
+
+## Defensive use
+
+BloodHound is dual-use: blue teams run the same collection to find and prune
+dangerous paths (remove an ACL edge, fix a delegation, tier the admins) before an
+attacker walks them. The shortest-path-to-DA going from "3 hops" to "no path" is a
+measurable hardening win.
+
+<Checkpoint
+  id="bloodhound"
+  questions={[
+    {
+      q: "Why does BloodHound model AD as a graph rather than a list?",
+      options: [
+        "Graphs render faster",
+        "Privilege escalation is a chain of individually-benign relationships (MemberOf, GenericAll, CanRDP); the path is the vulnerability, which a graph query finds and a checklist misses",
+        "Because Neo4j requires it",
+        "To count users",
+      ],
+      answer: 1,
+      why: "Attackers traverse relationships to reach DA; no single edge looks bad, so only a graph reveals the exploitable path.",
+    },
+    {
+      q: "What does the collection step actually need to run from Linux?",
+      options: [
+        "A Windows box with SharpHound",
+        "bloodhound.py with domain creds + DC reachability; it gathers ACLs/sessions/groups/GPO/LAPS into a local Neo4j DB",
+        "Domain Admin rights",
+        "Physical access to the DC",
+      ],
+      answer: 1,
+      why: "bloodhound-import.sh runs bloodhound.py (Linux) with normal creds and imports the graph into Neo4j — no Windows agent.",
+    },
+    {
+      q: "How is BloodHound dual-use for defenders?",
+      options: [
+        "It isn't — it's offensive only",
+        "Blue teams run the same collection to find and prune dangerous edges (ACLs, delegation, admin tiering) before attackers walk the path",
+        "It patches the DC automatically",
+        "It only reads logs",
+      ],
+      answer: 1,
+      why: "The same graph that shows attack paths shows defenders which edges to break; shortest-path-to-DA shrinking is a hardening metric.",
+    },
+  ]}
+/>
+
+## Next
+
+Next: once you've found a path, how to actually move along it — the lateral
+movement hierarchy.

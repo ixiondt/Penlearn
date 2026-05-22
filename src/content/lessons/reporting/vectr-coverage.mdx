@@ -1,0 +1,119 @@
+## From "we found things" to "can they detect things"
+
+A pentest report tells the client what's exploitable. A **purple-team** report
+tells them what their detection stack actually *caught* while you did it. VECTR
+([vectr.io](https://vectr.io)) is the tracking layer for that: it records which
+ATT&CK techniques were exercised and whether each was detected, partially
+detected, or missed.
+
+`vectr-sync.sh` is the bridge — it pushes your findings into VECTR as test cases
+and pulls back the coverage scoring so it can land in the final report.
+
+## Configure once
+
+VECTR connection details come from the environment (or `~/.vectr.env`):
+
+```bash
+export VECTR_URL="https://vectr.example.com"
+export VECTR_API_KEY="..."
+export VECTR_DB="my-assessment-db"
+
+./scripts/vectr-sync.sh status      # confirm reachability
+```
+
+`env-check.sh` reports VECTR reachability in its integration section, so you can
+confirm wiring before an engagement.
+
+## Push findings (dry-run first)
+
+Always preview what will be created before writing to the VECTR instance:
+
+```bash
+# Dry run — shows what would be pushed, changes nothing
+./scripts/vectr-sync.sh push-findings --dry-run \
+  --findings scored.json --assessment "Client Q1" --campaign "Pentest"
+
+# Live
+./scripts/vectr-sync.sh push-findings \
+  --findings scored.json --assessment "Client Q1" --campaign "Pentest"
+```
+
+Each finding becomes a test case tagged with its ATT&CK technique. The blue team
+then marks each one Detected / Partial / Not Detected in VECTR as they review
+their telemetry.
+
+## Pull coverage back into the report
+
+Once the blue team has scored the campaign, pull the results:
+
+```bash
+./scripts/vectr-sync.sh pull-coverage --campaign-ids "camp-001" --output vectr-coverage.json
+```
+
+Then feed that file to the report generator. It adds a **Detection Coverage**
+section: a summary table (detected / partial / missed), a coverage-percentage
+callout, the per-technique results, and a **Coverage Gaps** subsection listing
+every technique no control caught — your detection-engineering backlog.
+
+```bash
+python3 scripts/report-generator.py --findings scored.json --output report.docx \
+  --vectr-coverage vectr-coverage.json
+```
+
+## The purple-team loop
+
+```text
+red: run technique ─▶ vectr-sync push-findings ─▶ blue: score in VECTR
+                                                        │
+report (with coverage + gaps) ◀── vectr-sync pull-coverage ◀──┘
+        │
+        ▼
+   detection engineering closes the gaps ─▶ re-test next cycle
+```
+
+The value isn't a one-time number — it's the loop. Each cycle, the gap list
+should shrink. A coverage report with no follow-up re-test is just a snapshot;
+the point is the trend.
+
+<Checkpoint
+  id="vectr-coverage"
+  questions={[
+    {
+      q: "What does vectr-sync.sh push-findings create in VECTR?",
+      options: [
+        "A copy of the DOCX report",
+        "Test cases tagged with each finding's ATT&CK technique, for the blue team to mark detected/partial/missed",
+        "New firewall rules",
+        "A STIX bundle",
+      ],
+      answer: 1,
+      why: "Findings become ATT&CK-tagged test cases; the blue team scores detection against their telemetry.",
+    },
+    {
+      q: "How does detection coverage end up in the client report?",
+      options: [
+        "You retype it by hand",
+        "pull-coverage writes a JSON that report-generator.py renders as a Detection Coverage section (incl. a Coverage Gaps list)",
+        "VECTR emails it",
+        "It can't — coverage and reports are separate",
+      ],
+      answer: 1,
+      why: "pull-coverage → vectr-coverage.json → report-generator.py --vectr-coverage adds the section automatically, gaps included.",
+    },
+    {
+      q: "What makes purple-teaming valuable beyond a single coverage score?",
+      options: [
+        "The loop — each cycle the gap list shrinks as detection engineering closes misses, then you re-test",
+        "Nothing, the score is the deliverable",
+        "It replaces the pentest entirely",
+        "It only matters for compliance",
+      ],
+      answer: 0,
+      why: "A snapshot is weak; the iterative red→score→engineer→re-test loop is what actually improves detection.",
+    },
+  ]}
+/>
+
+## Next
+
+Next: export incident IOCs as a **STIX 2.1** bundle the wider community can ingest.

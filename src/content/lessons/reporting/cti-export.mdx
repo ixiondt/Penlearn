@@ -1,0 +1,107 @@
+## Sharing what you learned
+
+An incident produces IOCs — IPs, domains, hashes, file paths, accounts. Kept in a
+text file they help only you. Exported as **STIX 2.1**, they become something a
+TIP (Threat Intelligence Platform), an ISAC, or a partner SOC can ingest
+automatically and use to defend themselves. CTI export is how a single incident
+turns into community-wide protection.
+
+`cti-export.sh` converts an IOC list into a STIX 2.1 JSON bundle — the standard
+structured format for cyber-threat intelligence.
+
+## From IOC list to STIX bundle
+
+Start with the IOCs you collected during the incident (`03-iocs.txt` in the
+incident workspace):
+
+```bash
+./scripts/cti-export.sh --ioc-file iocs.txt --incident-id INC-2026-001
+```
+
+The script classifies each IOC by type (the same IP/domain/hash/path/account
+regex used across `sigma-rule-builder.sh` and `pcap-analysis.sh`), wraps each as
+a STIX **Indicator** object with a proper pattern, and bundles them with stable
+UUIDs.
+
+## Adding attribution context
+
+If the incident maps to known malware or a campaign, attach it — STIX models the
+relationships, so consumers see not just the indicators but what they belong to:
+
+```bash
+./scripts/cti-export.sh --ioc-file iocs.txt \
+  --malware "BlackCat" --campaign "OP-NIGHTFALL" --incident-id INC-2026-001
+```
+
+This emits Malware / Campaign STIX Domain Objects and `indicates` relationships
+linking the indicators to them — so a downstream analyst can pivot from one IOC
+to the whole cluster.
+
+## Where it fits the IR flow
+
+```text
+forensics-collect ─▶ pcap-analysis / ioc-enrich ─▶ 03-iocs.txt
+                                                        │
+                                  ┌─────────────────────┼─────────────────────┐
+                                  ▼                      ▼                     ▼
+                          sigma-rule-builder      cti-export.sh         timeline-merge
+                          (detect locally)     (share as STIX)        (reconstruct)
+```
+
+The same IOC file fans out: build local detections, share intelligence, and
+reconstruct the timeline. CTI export is the *outbound* arm — turning your
+incident into a contribution.
+
+## Hygiene before you share
+
+STIX bundles travel outside your organization, so sanitize first:
+
+- Strip internal-only IOCs (RFC1918 IPs, internal hostnames) unless the recipient
+  is trusted and needs them
+- Confirm IOCs are actually malicious, not benign infrastructure caught in the net
+  — false indicators erode trust in shared intel
+- Set appropriate TLP (Traffic Light Protocol) marking with the recipient in mind
+
+<Checkpoint
+  id="cti-export"
+  questions={[
+    {
+      q: "Why export IOCs as STIX 2.1 rather than just sharing the text file?",
+      options: [
+        "STIX is smaller",
+        "STIX is the standard structured format TIPs/ISACs/partner SOCs can ingest automatically — turning one incident into community defense",
+        "Text files can't hold IP addresses",
+        "It encrypts the IOCs",
+      ],
+      answer: 1,
+      why: "STIX is machine-ingestible structured CTI; it lets other defenders consume your indicators (and their relationships) without manual re-entry.",
+    },
+    {
+      q: "What do --malware and --campaign add to the bundle?",
+      options: [
+        "Nothing — they're cosmetic",
+        "Malware/Campaign STIX objects plus 'indicates' relationships linking the indicators to them, so consumers can pivot to the whole cluster",
+        "They delete benign IOCs",
+        "They sign the bundle",
+      ],
+      answer: 1,
+      why: "STIX models relationships; attaching malware/campaign context lets a downstream analyst pivot from one IOC to the attribution cluster.",
+    },
+    {
+      q: "What's the key hygiene step before sharing a STIX bundle externally?",
+      options: [
+        "Maximize the number of IOCs",
+        "Sanitize: strip internal-only IOCs, confirm indicators are truly malicious, and set an appropriate TLP marking",
+        "Always include RFC1918 addresses",
+        "Remove all hashes",
+      ],
+      answer: 1,
+      why: "Shared intel leaving the org must be sanitized and accurate — false or internal indicators erode trust and leak information.",
+    },
+  ]}
+/>
+
+## Next
+
+That completes the reporting track. Back to the module index, or revisit the
+**IR** module to see where these IOCs were collected.

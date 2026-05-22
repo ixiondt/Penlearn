@@ -1,0 +1,108 @@
+## MFA didn't save you — now what?
+
+Adversary-in-the-Middle (AiTM) phishing is the dominant credential attack of the
+cloud era because it **defeats most MFA**. The victim clicks a link, a reverse
+proxy (evilginx and friends) relays the real login page, and the attacker captures
+not the password but the *authenticated session token* — MFA already satisfied.
+You can't prevent it with MFA alone, so detection matters. This lesson is the
+defensive companion to the brand-protection lesson (which finds the infrastructure
+before the click). `data/references/aitm-defense-checklist.md` is the reference.
+
+## The six hunt hypotheses (H-059 → H-064)
+
+AiTM leaves a recognizable trail in sign-in and audit logs:
+
+```text
+H-059  session token replay     same token from a new ASN/country (non-compliant device)
+H-060  datacenter ASN sign-in    login from Cloudflare/Hetzner/OVH/AWS/Azure ranges
+H-061  OAuth consent abuse       consent to high-priv scopes (Mail.Read, full_access_as_app)
+H-062  MFA self-enrollment       attacker registers their own MFA factor post-theft
+H-063  mail-forwarding rule      New-InboxRule forwarding externally (exfil/persistence)
+H-064  user-agent shift          UA changes mid-session (proxy vs victim browser)
+```
+
+`sigma-rule-builder.sh --technique T1539` (token replay), `T1078.004` (datacenter
+ASN), and `T1556.006` (MFA tampering) generate the detection rules — each tuned
+with notes for your domain regex, VPN egress ASN allowlist, and service-account
+naming.
+
+## The pivot signal — when it's confirmed
+
+No single one of these is conclusive alone (a traveling user trips geo signals).
+The high-confidence detection is the **combination**:
+
+```text
+phishing-link click
+   + new-geo / datacenter-ASN sign-in
+   + (new MFA factor  OR  OAuth consent to mail scopes  OR  external forwarding rule)
+   ───────────────────────────────────────────────────────────────────────
+   = confirmed AiTM session compromise → incident
+```
+
+That chained signal is the difference between a noisy alert and an actionable one.
+Each link is weak; together they're a confirmed compromise.
+
+## Why post-auth artifacts matter most
+
+```text
+attacker steals session token (MFA already passed)
+   │
+   ├─ registers own MFA factor   ── persistence (survives password reset)
+   ├─ adds mail-forwarding rule   ── exfil + persistence
+   └─ OAuth-consents an app       ── persistence (token survives session)
+```
+
+Resetting the password does **not** evict an AiTM attacker who's planted these.
+That's why H-062/063/061 are the highest-value hunts — they catch the persistence
+the attacker establishes *after* the token theft, which is what makes the
+compromise durable. Eviction means killing sessions, removing rogue MFA factors,
+deleting forwarding rules, and revoking app consents — not just a password reset.
+
+## Defensive hardening (beyond detection)
+
+The checklist pairs detection with prevention: phishing-resistant MFA (FIDO2),
+conditional access (block legacy auth, require compliant devices), and token
+binding — which is what actually *stops* AiTM rather than just catching it.
+
+<Checkpoint
+  id="aitm-detection"
+  questions={[
+    {
+      q: "Why does AiTM phishing defeat most MFA?",
+      options: [
+        "It cracks the MFA seed",
+        "A reverse proxy relays the real login and captures the authenticated session token after MFA is already satisfied — so MFA never blocks it",
+        "It guesses the OTP",
+        "It only works without MFA",
+      ],
+      answer: 1,
+      why: "AiTM steals the post-MFA session token via a relaying proxy; the second factor was already provided to the real site.",
+    },
+    {
+      q: "What turns weak individual AiTM signals into a confirmed compromise?",
+      options: [
+        "A single failed login",
+        "The chain: phishing click + new-geo/datacenter sign-in + (new MFA factor OR OAuth consent OR external forwarding rule)",
+        "High CPU on the DC",
+        "An expired certificate",
+      ],
+      answer: 1,
+      why: "Each signal is noisy alone; the combination is the high-confidence, actionable detection.",
+    },
+    {
+      q: "Why won't a password reset alone evict an AiTM attacker?",
+      options: [
+        "A reset is always sufficient",
+        "They plant post-auth persistence (their own MFA factor, mail-forwarding rules, OAuth app consent) that survives a reset — eviction also requires killing sessions and removing those",
+        "Because the DC is offline",
+        "Because MFA blocks the reset",
+      ],
+      answer: 1,
+      why: "AiTM persistence (rogue MFA, forwarding rules, app consents) outlives a password reset; full eviction means revoking sessions, factors, rules, and consents too.",
+    },
+  ]}
+/>
+
+## Next
+
+That completes the SOC track. Next module: **incident response core**.

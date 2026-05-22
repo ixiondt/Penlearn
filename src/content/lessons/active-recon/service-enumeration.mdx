@@ -1,0 +1,108 @@
+## The port scan is the start, not the finish
+
+`nmap` tells you port 445 is open and running SMB. It doesn't tell you the share
+names, the null-session policy, the domain users, or the password policy.
+Service enumeration is the deep dive on each interesting service — and it's where
+most real footholds are actually found.
+
+`pentest.sh` runs targeted enumeration for the three classic information-leaking
+services, and `data/references/enumeration-checklist.md` is the field reference
+with exact commands for these plus HTTP, FTP, RDP, and AD.
+
+## SMB (445/139)
+
+SMB is the richest enumeration target on Windows networks:
+
+```bash
+enum4linux -a 10.0.0.10            # users, shares, groups, password policy
+smbclient -L //10.0.0.10/ -N       # list shares with a null session
+nbtscan 10.0.0.0/24                # NetBIOS name sweep
+nmap --script smb-enum-shares,smb-enum-users -p445 10.0.0.10
+```
+
+A null session (anonymous) that returns users or shares is an immediate finding —
+it hands an attacker the user list to spray against.
+
+## SMTP (25/587)
+
+Mail servers often leak whether an account exists, giving you a validated user
+list for free:
+
+```bash
+# VRFY / EXPN probe a username's existence
+nmap --script smtp-enum-users -p25 mail.example.com
+# Manual: VRFY root  →  250 (exists) vs 550 (no such user)
+```
+
+The win isn't the mail server itself — it's turning guesses into a confirmed list
+of valid usernames for later password attacks.
+
+## SNMP (161/udp)
+
+SNMP with a default community string ("public") is a goldmine — it can dump the
+full process list, installed software, listening ports, and local users:
+
+```bash
+onesixtyone -c community-strings.txt 10.0.0.10   # brute the community string
+snmpwalk -v2c -c public 10.0.0.10                # walk the whole MIB
+snmpwalk -v2c -c public 10.0.0.10 1.3.6.1.4.1.77.1.2.25   # Windows users
+```
+
+## The pattern
+
+```text
+nmap (what's open) ─▶ per-service enumeration (what's exposed)
+   445 SMB    ─▶ enum4linux: users, shares, policy
+   25  SMTP   ─▶ VRFY/EXPN: valid usernames
+   161 SNMP   ─▶ snmpwalk: processes, software, users
+                          │
+                          ▼
+              foothold candidates (null sessions, default creds, user lists)
+```
+
+Each service answers a different question, and the answers compound: SMTP gives
+you usernames, SMB gives you the password policy, SNMP confirms what software to
+target. Enumeration is where a port list becomes an attack plan.
+
+<Checkpoint
+  id="service-enumeration"
+  questions={[
+    {
+      q: "Why is an anonymous (null-session) SMB connection that returns users or shares a finding?",
+      options: [
+        "It isn't — null sessions are normal",
+        "It hands an attacker the user list and accessible shares with no credentials — directly enabling password spraying and data access",
+        "It only matters on Linux",
+        "It crashes the server",
+      ],
+      answer: 1,
+      why: "Anonymous enumeration leaks the attack surface (users, shares, policy) for free, which is exactly what an attacker needs to proceed.",
+    },
+    {
+      q: "What's the real value of SMTP VRFY/EXPN enumeration?",
+      options: [
+        "It reads everyone's email",
+        "It turns username guesses into a confirmed list of valid accounts for later password attacks",
+        "It sends phishing",
+        "It opens port 25",
+      ],
+      answer: 1,
+      why: "VRFY/EXPN distinguishes real accounts from non-existent ones, validating a target list for spraying.",
+    },
+    {
+      q: "Why is SNMP with the 'public' community string so valuable?",
+      options: [
+        "It's encrypted",
+        "It can dump processes, installed software, listening ports, and local users — a full host inventory with no real authentication",
+        "It only returns the hostname",
+        "It requires domain admin",
+      ],
+      answer: 1,
+      why: "A default/guessable community string exposes the device's MIB — a rich inventory an attacker uses to plan exploitation.",
+    },
+  ]}
+/>
+
+## Next
+
+Next: turning version banners into a triaged, risk-scored findings list.

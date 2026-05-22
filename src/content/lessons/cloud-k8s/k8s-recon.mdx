@@ -1,0 +1,122 @@
+## Two vantage points: the cluster and the pod
+
+Kubernetes security has two questions. From *outside or with cluster creds*: how
+is the cluster configured and who can do what? From *inside a compromised pod*:
+can I break out to the node or the cluster? The toolkit has a script for each —
+`k8s-enum.sh` for cluster recon, `container-escape-check.sh` for the breakout
+audit.
+
+## Cluster recon
+
+```bash
+./scripts/k8s-enum.sh --context prod --scope full --engagement client-2026
+```
+
+Read-only enumeration of the cluster's risk surface:
+
+```text
+cluster info             version, API server exposure
+RBAC                     who can do what; cluster-admin bindings, wildcard verbs
+privileged pods          privileged: true, hostPID/hostNetwork, dangerous caps
+host mounts              hostPath volumes (esp. / or /var/run/docker.sock)
+service accounts         over-permissioned SAs, automountServiceAccountToken
+secrets                  k8s Secrets (base64, not encrypted) readable by whom
+NetworkPolicies          absent = flat pod network (no segmentation)
+exposed services         LoadBalancer/NodePort reachable externally
+```
+
+With `--full` it can run **kube-hunter** for active vulnerability checks.
+
+## From inside a pod
+
+If you've landed in a container (web RCE, supply chain), the question becomes
+escape. `container-escape-check.sh` audits the breakout surface from within:
+
+```bash
+./scripts/container-escape-check.sh --container suspicious-pod --incident-id INC-X
+```
+
+```text
+capabilities       CAP_SYS_ADMIN and friends → escape primitives
+mounts             docker.sock / hostPath / / mounted → host access
+kernel CVEs        version vs known container-escape CVEs (Dirty*, etc.)
+SA token           /var/run/secrets/.../token → talk to the API server
+IMDS reachability  cloud metadata from the pod → node role creds
+```
+
+It's explicitly **dual-use**: defenders run it to harden a pod; operators run it
+to plan post-foothold. Either way the output is the same list of escape paths.
+
+## The escalation chain
+
+```text
+compromised pod
+   │
+   ├─ privileged / hostPath / docker.sock ──▶ node (host) compromise
+   ├─ powerful SA token ───────────────────▶ cluster API → other namespaces
+   └─ IMDS reachable ──────────────────────▶ cloud role creds → cloud account
+            │
+            ▼
+   one pod → node → cluster → cloud
+```
+
+This is why pod security matters so much: a single web vuln in one container can
+cascade to the node, then the whole cluster, then the cloud account — *if* the
+pod was over-privileged. Each rung of the ladder is a `container-escape-check.sh`
+finding, and each is closed by a Pod Security Standard (drop caps, no hostPath, no
+automount, restrict SA RBAC).
+
+## Why both scripts
+
+```text
+k8s-enum.sh             (bird's eye)   which pods COULD escape, cluster-wide
+container-escape-check  (worm's eye)   can THIS pod escape, right now
+```
+
+Cluster recon finds the systemic weaknesses (no NetworkPolicies, privileged
+DaemonSets); the in-pod audit confirms a concrete breakout from a specific
+foothold. You want both views.
+
+<Checkpoint
+  id="k8s-recon"
+  questions={[
+    {
+      q: "Why does container-escape-check.sh flag a mounted docker.sock or hostPath '/' as critical?",
+      options: [
+        "It uses extra disk",
+        "It gives the container direct access to the host — escaping the pod to compromise the node",
+        "It's only a performance issue",
+        "It exposes the pod name",
+      ],
+      answer: 1,
+      why: "docker.sock or host-root mounts bridge container→host, the canonical escape to node compromise.",
+    },
+    {
+      q: "How can a single compromised pod cascade to the cloud account?",
+      options: [
+        "It can't — pods are fully isolated",
+        "A powerful SA token reaches the cluster API, and a reachable IMDS yields node role creds → cloud access: pod → node → cluster → cloud",
+        "Only if it runs as root",
+        "Through DNS only",
+      ],
+      answer: 1,
+      why: "Over-privileged SA tokens and reachable cloud metadata let one pod climb to cluster and cloud control.",
+    },
+    {
+      q: "Why run both k8s-enum.sh and container-escape-check.sh?",
+      options: [
+        "They're identical",
+        "k8s-enum gives the cluster-wide view of which pods COULD escape; container-escape-check confirms whether a SPECIFIC foothold can escape now",
+        "One is for AWS, one for GCP",
+        "Only the escape check matters",
+      ],
+      answer: 1,
+      why: "Bird's-eye cluster recon finds systemic risk; the in-pod audit confirms a concrete breakout — complementary views.",
+    },
+  ]}
+/>
+
+## Next
+
+That completes the exploitation tracks. Next: the defensive side — SOC hunting
+and incident response.

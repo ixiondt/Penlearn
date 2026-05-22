@@ -1,0 +1,117 @@
+## The report is the deliverable
+
+Everything earlier in the engagement — recon, scanning, exploitation — produces
+*evidence*. The client pays for the **report**. The toolkit keeps that report
+one command away from your findings JSON, so writing it is never a separate
+manual transcription step where errors creep in.
+
+`report-generator.py` turns a findings JSON into a formatted **DOCX**, an
+interactive **HTML** report, or both. The same JSON also drives risk scoring and
+network diagrams — one source of truth, several consumers.
+
+## One findings file, three outputs
+
+```bash
+# DOCX only (default)
+python3 scripts/report-generator.py --findings scored.json --output report.docx
+
+# Interactive single-file HTML
+python3 scripts/report-generator.py --findings scored.json --output report.html --format html
+
+# Both, in one run
+python3 scripts/report-generator.py --findings scored.json --output report --format both
+```
+
+The findings JSON is the normalized shape every toolkit scanner emits (severity,
+title, cvss, cwe, owasp, affected, description, evidence, risk, remediation,
+references). Whether it came from `cve-lookup.sh`, `import-output.sh`, or
+`ai-redteam.sh`, the report generator treats it identically.
+
+## The HTML report
+
+The HTML output is a **self-contained single file** — inline CSS/JS, no CDN, safe
+to email or drop on a share. It gives a triage-friendly view the DOCX can't:
+
+- A severity bar chart and filter chips (click CRITICAL to show only criticals)
+- A sortable findings table (by severity, CVSS, title)
+- Expandable per-finding detail with evidence, risk, remediation, references
+
+Every finding field is HTML-escaped on the way in. That matters here more than
+anywhere: findings *contain attacker payloads* (`<script>`, `' OR 1=1`), and an
+un-escaped report would XSS whoever opens it. The generator escapes so the report
+can never attack its reader.
+
+## Embedding the network topology
+
+Give the HTML report an nmap source and it embeds the `network-diagram.py`
+topology inline (in a sandboxed iframe), so the reader sees the map and the
+findings in one document:
+
+```bash
+python3 scripts/report-generator.py --findings scored.json --output report \
+  --format both --nmap-file ~/pentest-reports/*/02-nmap-realip.txt --scanner-ip 10.0.0.99
+```
+
+## AI-assisted executive summary
+
+`--summarize` writes the executive-summary section with Claude (falls back to a
+deterministic template if no API key). It only sends the top-15 findings by
+severity — titles and metadata, never raw evidence — and caches by content hash
+so re-runs don't re-bill.
+
+```bash
+export ANTHROPIC_API_KEY=...
+python3 scripts/report-generator.py --findings scored.json --output report.docx --summarize
+```
+
+## The full pipeline
+
+```text
+pentest.sh ─▶ cve-lookup.sh ─▶ risk-scoring.py ─▶ report-generator.py ─▶ report.{docx,html}
+                                     │                      ▲
+                                     └──── network-diagram.py (embedded)
+```
+
+<Checkpoint
+  id="docx-reports"
+  questions={[
+    {
+      q: "Why does the HTML report HTML-escape every finding field?",
+      options: [
+        "To make the file smaller",
+        "Findings contain attacker payloads (XSS/SQLi strings); un-escaped, the report itself would XSS whoever opens it",
+        "Because DOCX requires it",
+        "It does not — only the title is escaped",
+      ],
+      answer: 1,
+      why: "A pentest report's evidence routinely includes live payloads. Escaping every interpolated field means opening the report can't execute them.",
+    },
+    {
+      q: "What does --summarize send to the Claude API?",
+      options: [
+        "The entire findings file including all raw evidence",
+        "Only the top-15 findings by severity (titles + metadata, no raw evidence), cached by content hash",
+        "Nothing — it is fully offline",
+        "The client's name and IP ranges only",
+      ],
+      answer: 1,
+      why: "It sends a bounded, evidence-free digest and caches the result, so it's cheap and doesn't leak raw findings.",
+    },
+    {
+      q: "You want one file that shows the network map and the findings together. Which command?",
+      options: [
+        "--format docx",
+        "--format html with --nmap-file (embeds the topology in a sandboxed iframe)",
+        "network-diagram.py alone",
+        "--summarize",
+      ],
+      answer: 1,
+      why: "The HTML report embeds the network-diagram.py topology inline when given an nmap source, producing a single self-contained document.",
+    },
+  ]}
+/>
+
+## Next
+
+Next: push findings into **VECTR** to measure detection coverage and run the
+purple-team loop.

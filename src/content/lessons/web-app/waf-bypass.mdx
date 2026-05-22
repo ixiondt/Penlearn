@@ -1,0 +1,111 @@
+## The WAF is a speed bump, not a wall
+
+A Web Application Firewall pattern-matches requests against known-bad signatures.
+That makes it a real obstacle and a real *finding* — a payload blocked by the WAF
+is often still exploitable on the origin if you can get it past the filter, or
+reach the origin directly. `data/references/waf-bypass-reference.md` is the
+reference; the workflow is fingerprint → choose technique → confirm origin.
+
+## Detect and fingerprint
+
+Know your enemy first — different WAFs have different blind spots:
+
+```bash
+wafw00f https://example.com        # identifies the WAF vendor (12+ supported)
+```
+
+Fingerprinting comes from response headers, cookies, block-page signatures, and
+behavior on a deliberate trigger payload. Cloudflare, Akamai, AWS WAF, F5,
+Imperva, etc. each fail differently.
+
+## Bypass techniques
+
+Most WAFs match strings; the bypass is to change the string while keeping the
+semantics:
+
+```text
+Encoding         URL / double-URL / unicode / hex encode the payload
+Comment injection  SELECT/**/...   UNI/**/ON
+Case/whitespace   SeLeCt, tab/newline instead of space
+Header tricks     X-Originating-IP, X-Forwarded-For to confuse origin routing
+Chunked encoding  split the payload across chunks the WAF won't reassemble
+HTTP param pollution  ?id=1&id=2  — WAF sees one, app sees the other
+```
+
+The principle: the WAF and the app must agree on what the request *means*. Any
+place they disagree (encoding, parsing, parameter precedence) is a bypass.
+
+## Find the origin — skip the WAF entirely
+
+The cleanest bypass is not going through the WAF at all. If the origin IP leaks,
+you hit it directly:
+
+```text
+DNS history (SecurityTrails), CT logs, leaked headers, error pages,
+mail records (MX often points at the origin), old subdomains
+```
+
+This ties straight back to passive recon — `subdomain-enum.sh` history lookups and
+`osint-passive.sh` favicon clustering are how you find an origin a CDN/WAF was
+supposed to hide. Confirm with the `pentest.sh` real-IP scan: if the origin
+serves the app directly, the WAF is bypassed by design.
+
+## Decision tree
+
+```text
+payload blocked?
+   │
+   ├─ origin IP findable? ──yes──▶ hit origin directly (WAF irrelevant)
+   │                       no
+   ▼
+   try encoding/comment/case/header/HPP variants
+   │
+   ├─ one gets through ──▶ exploit confirmed past the WAF
+   └─ all blocked ──▶ document WAF as a mitigating control (not a fix)
+```
+
+A WAF is defense-in-depth, never the fix. Report a WAF-blocked-but-origin-
+exploitable vuln as exploitable — the underlying bug still needs patching.
+
+<Checkpoint
+  id="waf-bypass"
+  questions={[
+    {
+      q: "What's the underlying principle behind most WAF bypass techniques?",
+      options: [
+        "Brute-forcing the WAF password",
+        "Making the WAF and the app disagree on what the request means (encoding, parsing, parameter precedence) so the payload reads as benign to one and live to the other",
+        "Sending more requests",
+        "Disabling TLS",
+      ],
+      answer: 1,
+      why: "WAFs match strings; bypasses exploit any parsing/encoding disagreement between the WAF and the application.",
+    },
+    {
+      q: "Why is finding the origin IP the cleanest bypass?",
+      options: [
+        "It's faster to type",
+        "Hitting the origin directly skips the WAF entirely — no filter to evade — which is why CDN-hidden origins must not be reachable",
+        "Origins have no firewall",
+        "It only works on Cloudflare",
+      ],
+      answer: 1,
+      why: "If you reach the origin directly, the WAF never sees the request; leaked origin IPs make the WAF moot.",
+    },
+    {
+      q: "A payload is blocked by the WAF but works against the origin directly. How do you report it?",
+      options: [
+        "As fully mitigated — the WAF blocks it",
+        "As exploitable: the WAF is a mitigating control, not a fix; the underlying bug still needs patching",
+        "Don't report it",
+        "As a WAF misconfiguration only",
+      ],
+      answer: 1,
+      why: "A WAF is defense-in-depth; the real vulnerability remains and must be fixed, so it's reported as exploitable.",
+    },
+  ]}
+/>
+
+## Next
+
+That completes the web track. Next: **Active Directory** attack paths.

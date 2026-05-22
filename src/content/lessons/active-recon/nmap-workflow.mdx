@@ -1,0 +1,106 @@
+## Active recon starts here — and so does authorization
+
+The moment you send a packet at a target you don't own, you need written
+authorization. Active scanning is where the standing rule bites: scope document
+or engagement letter first, every time.
+
+With that in hand, `pentest.sh` is the workhorse — a structured nmap-driven scan
+that goes from "what's alive" to "what's vulnerable" and lands the results
+somewhere queryable.
+
+## The one-command scan
+
+```bash
+./scripts/pentest.sh example.com 203.0.113.10
+```
+
+Two arguments: the domain and its **real IP** (the origin behind any CDN). The
+script walks the standard nmap progression:
+
+1. **Host discovery** — is it up?
+2. **Port scan** — what's listening
+3. **Service/version detection** (`-sV`) — what's behind each port
+4. **NSE scripts** — default + targeted scripts for discovered services
+5. **Known-bad version detection** — a built-in table flags notorious vulnerable
+   versions (vsftpd 2.3.4, old OpenSSH/Apache/nginx/Samba/Exim/Tomcat, etc.)
+   straight from the banners
+
+Behind a CDN, scanning the domain only tests the CDN. Passing the **real IP**
+(found via passive recon, CT-log history, or leaked DNS) is what tests the actual
+origin — and confirming the origin isn't directly reachable is itself a finding.
+
+## Persisting results with scan-db
+
+A scan you can't query later is a wasted scan. `scan-db.py` is a SQLite layer
+that keeps results across engagements:
+
+```bash
+python3 scripts/scan-db.py import-nmap --nmap-file ~/pentest-reports/*/02-nmap-realip.txt \
+  --engagement client-2026 --target 203.0.113.10
+
+python3 scripts/scan-db.py query-ports --service ssh        # every SSH across engagements
+python3 scripts/scan-db.py compare --scan1 abc123 --scan2 def456   # delta between scans
+```
+
+The `compare` command is the quiet superpower: re-scan next quarter, diff against
+last quarter, and you immediately see new exposure (a port that opened, a version
+that regressed).
+
+## Where it leads
+
+```text
+pentest.sh ─▶ nmap output ─▶ scan-db (persist)
+                  │
+                  └─▶ cve-lookup.sh ─▶ risk-scoring.py ─▶ report
+```
+
+This lesson's lab (`03-scan-lab`) gives you a vulnerable network you fully
+control to practice the whole progression safely.
+
+<Checkpoint
+  id="nmap-workflow"
+  questions={[
+    {
+      q: "Why does pentest.sh take the real IP as a separate argument from the domain?",
+      options: [
+        "For logging only",
+        "Behind a CDN, scanning the domain tests the CDN; the real IP tests the actual origin (and confirming the origin isn't directly reachable is itself a finding)",
+        "nmap requires two targets",
+        "It scans them in parallel for speed",
+      ],
+      answer: 1,
+      why: "CDN-fronted domains hide the origin. You scan the real IP to assess the origin; if it's directly reachable, that's a finding.",
+    },
+    {
+      q: "What does scan-db.py's compare command give you?",
+      options: [
+        "A prettier report",
+        "The delta between two scans — new open ports, changed versions — so you see new exposure quarter over quarter",
+        "A CVE lookup",
+        "Nothing useful",
+      ],
+      answer: 1,
+      why: "Persisting scans lets you diff them over time; compare surfaces newly-opened ports and regressed versions.",
+    },
+    {
+      q: "What's the hard prerequisite before running pentest.sh against a client?",
+      options: [
+        "A fast internet connection",
+        "Written authorization (scope document / engagement letter) — active scanning touches the target",
+        "Nothing, scanning is always legal",
+        "A VECTR account",
+      ],
+      answer: 1,
+      why: "Active scanning sends packets at the target; the standing rule requires written authorization first.",
+    },
+  ]}
+/>
+
+## Lab
+
+`03-scan-lab` is a vulnerable target network you control end-to-end — practice
+the nmap → scan-db → CVE pipeline with no authorization concerns.
+
+## Next
+
+Next: going deep on specific services — SMB, SMTP, and SNMP enumeration.

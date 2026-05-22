@@ -1,0 +1,118 @@
+## The network never lies
+
+Endpoint logs can be tampered with; a sufficiently privileged attacker clears
+them. The packet capture is harder to fake and often the ground truth of an
+incident — when the C2 beaconed, what it exfiltrated, which internal hosts it
+touched. PCAP analysis turns raw captures into answers. `pcap-analysis.sh` drives
+Zeek and tshark; `pcap-hunt.sh` re-hunts old captures when new IOCs arrive; and
+`ioc-enrich.sh` scores indicators against threat-intel feeds.
+
+## Analyzing a capture
+
+```bash
+./scripts/pcap-analysis.sh ingest --pcap capture.pcap --ioc-file iocs.txt --incident-id INC-2026-001
+```
+
+It runs the PCAP through **Zeek** (producing conn/dns/http/ssl/files logs) and
+**tshark**, then applies automated detection for the patterns that matter in an
+incident:
+
+```text
+C2 / beaconing      regular-interval connections (jitter-aware), long-lived sessions
+DNS tunneling        high-entropy / high-volume subdomains, TXT abuse
+data exfil           large outbound transfers, staging→send patterns
+protocol anomalies   service on a wrong port, plaintext where TLS expected
+IOC matches          your indicator list across all the Zeek logs
+```
+
+Beacon detection is the headline — malware C2 phones home on an interval (often
+with jitter), and that periodicity is visible in the conn log even when the
+payload is encrypted.
+
+## Enriching the indicators
+
+A raw IP isn't intelligence until you know its reputation:
+
+```bash
+./scripts/ioc-enrich.sh --ioc-file iocs.txt --incident-id INC-2026-001
+```
+
+It queries up to seven TI sources (AbuseIPDB, VirusTotal, GreyNoise, OTX, Shodan,
+URLhaus, ThreatFox), auto-detecting which to use from available API keys, and
+tags each IOC with a verdict. It **exits 2 if any IOC is malicious** — a clean
+automation signal.
+
+## Re-hunting for late-arriving IOCs
+
+Threat intel arrives *after* the fact. A week later you learn the campaign used a
+new C2 domain — were you talking to it before you knew? `pcap-hunt.sh` answers
+that against captures you already have:
+
+```bash
+./scripts/pcap-hunt.sh --ioc-file new-iocs.txt \
+  --pcap-dir ~/incidents/INC-X/07-evidence/pcaps/ --incident-id INC-X
+```
+
+It's three-tier for speed: grep pre-existing Zeek logs first, fall back to tshark
+over the PCAPs, then a fresh Zeek run if needed. Exit code 2 on hits.
+
+## Why retained PCAPs are gold
+
+```text
+incident detected (day 0)
+   │  capture + analyze ─▶ known IOCs
+   ▼
+new threat intel (day 7) ─▶ pcap-hunt over retained captures
+   │
+   ▼
+"we were beaconing to that domain on day -3"  ← scope expands, timeline corrected
+```
+
+The IOCs you have on day 0 are never the complete set. Retained captures let you
+re-ask the question every time new intelligence lands — which is how you discover
+the compromise started earlier, or touched more hosts, than the first analysis
+showed. A capture you can re-hunt is an investigation that keeps paying off.
+
+<Checkpoint
+  id="pcap-analysis"
+  questions={[
+    {
+      q: "Why is PCAP often the ground truth of an incident over endpoint logs?",
+      options: [
+        "It's smaller",
+        "A privileged attacker can clear endpoint logs, but the network capture is harder to fake — it shows when C2 beaconed, what was exfiltrated, and which hosts were touched",
+        "Logs don't record network activity",
+        "PCAP is encrypted and tamper-proof",
+      ],
+      answer: 1,
+      why: "Endpoint logs are tamperable; captures are independent evidence of actual network behavior.",
+    },
+    {
+      q: "How is C2 beaconing detectable even when the payload is encrypted?",
+      options: [
+        "By decrypting TLS",
+        "The regular (jitter-aware) interval and long-lived sessions are visible in the Zeek conn log regardless of payload encryption",
+        "It isn't detectable",
+        "Only by the antivirus",
+      ],
+      answer: 1,
+      why: "Beacon periodicity is a metadata pattern in connection records; encryption hides content, not timing.",
+    },
+    {
+      q: "What's the value of pcap-hunt.sh against retained captures?",
+      options: [
+        "It compresses old PCAPs",
+        "When new threat intel arrives later, you re-hunt old captures for the new IOCs — often discovering the compromise started earlier or touched more hosts than first thought",
+        "It deletes captures to save space",
+        "It replaces Zeek",
+      ],
+      answer: 1,
+      why: "Day-0 IOCs are incomplete; re-hunting retained PCAPs with later intel corrects the timeline and scope.",
+    },
+  ]}
+/>
+
+## Next
+
+That completes IR core. Final module: **ICS / OT** — where safety changes
+everything.

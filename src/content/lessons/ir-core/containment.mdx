@@ -1,0 +1,114 @@
+## Stop the bleeding without burning the evidence
+
+Containment is the moment of maximum pressure in an incident: the attacker is
+active, stakeholders want it stopped *now*, and the wrong move destroys the
+evidence you need or tips off the attacker. The discipline is to contain in a way
+that's deliberate and reversible — and to preserve volatile evidence *before* you
+cut anything off.
+
+`containment.sh` generates containment actions, defaulting to **generate-only** so
+you review before anything executes.
+
+## Generate first, execute deliberately
+
+```bash
+# Generates the commands and prints them for review — changes nothing
+./scripts/containment.sh block-ioc --ip 185.0.0.1 --incident-id INC-2026-001
+
+# Add --execute only when you've reviewed and decided
+./scripts/containment.sh isolate-host --mgmt-ip 10.0.0.5 --execute
+```
+
+The generate-only default is the same philosophy as the offensive `msf-rc-gen.sh`
+and `ics-containment.sh`: the human reviewing the action is the gate. `curl`
+bypasses a UI; a thoughtless `--execute` doesn't get a second look. So the
+default makes you look.
+
+## What it can contain
+
+```text
+block-ioc           firewall/null-route a malicious IP or domain (C2 disruption)
+isolate-host        cut a host off the network but keep it powered (preserve RAM)
+stop-container      graceful container stop
+pause-container     freeze a container — preserves its state for forensics
+kill-container      hard kill (cryptominer, active damage)
+disconnect-network  detach a container from a network, leave it running
+```
+
+Container actions auto-detect docker vs podman. **Pause** is the forensic
+favorite: it freezes the process and memory in place for capture, unlike stop/kill.
+
+## Evidence before isolation
+
+The ordering rule from the persistence lesson applies with teeth here:
+
+```text
+forensics-collect (RAM, volatile state)   ←  do this FIRST
+        │
+        ▼
+containment (isolate-host / pause-container)   ←  then cut it off
+        │
+        ▼
+eradication / rebuild
+```
+
+`isolate-host` keeps the machine **powered** precisely so RAM survives for
+acquisition — pulling the plug or shutting down throws away the most valuable
+evidence (running malware, injected code, encryption keys, network state). Isolate
+the network path, not the power.
+
+## Reversibility and the tip-off risk
+
+Every containment action should be reversible and logged (the script routes a
+containment log into the incident workspace). Two reasons reversibility matters:
+
+- You may need to *re-enable* connectivity for controlled monitoring (watch the
+  attacker to scope them) before final eradication.
+- Loud containment **tips off the attacker**, who may then detonate ransomware or
+  burn their access. Sometimes the right call is quiet monitoring first, then
+  coordinated containment — a decision for the IR lead, which is why the script
+  surfaces options rather than auto-executing.
+
+<Checkpoint
+  id="containment"
+  questions={[
+    {
+      q: "Why does isolate-host cut the network but keep the host powered on?",
+      options: [
+        "To save the OS license",
+        "So volatile evidence (RAM: running malware, injected code, keys, network state) survives for acquisition — powering off destroys it",
+        "Powering off is impossible remotely",
+        "It doesn't matter either way",
+      ],
+      answer: 1,
+      why: "RAM holds the highest-value evidence; isolating the network path preserves it, whereas shutdown discards it.",
+    },
+    {
+      q: "Why does containment.sh default to generate-only (review before --execute)?",
+      options: [
+        "It's slower on purpose",
+        "The human reviewing the action is the gate; a thoughtless --execute on production gets no second look, so the default forces review",
+        "Because the commands don't work",
+        "To avoid writing logs",
+      ],
+      answer: 1,
+      why: "Generate-only makes the operator read and decide; containment on live systems is consequential and shouldn't be reflexive.",
+    },
+    {
+      q: "Why might loud, immediate containment be the wrong first move?",
+      options: [
+        "It's never wrong",
+        "It can tip off the attacker (who may detonate ransomware or burn access); sometimes quiet monitoring to scope them first, then coordinated containment, is better",
+        "It uses too much bandwidth",
+        "Firewalls can't block IPs",
+      ],
+      answer: 1,
+      why: "Visible containment alerts the adversary; the IR lead may choose to scope quietly first — hence options, not auto-execute.",
+    },
+  ]}
+/>
+
+## Next
+
+Next: reconstructing what happened on the wire — PCAP analysis and re-hunting for
+late-arriving IOCs.

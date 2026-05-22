@@ -1,0 +1,116 @@
+## Containment that could hurt someone
+
+In IT, isolating a compromised host is almost always the safe call. In OT,
+isolating the wrong device mid-process can be *more* dangerous than the intrusion
+— cut a controller off from its safety logic or its operator at the wrong moment
+and you can cause the physical incident you were trying to prevent. OT containment
+is therefore gated by people, not just by review. `ics-containment.sh` enforces
+that.
+
+## Safety-first priority order
+
+Every OT decision is ranked against this hierarchy — and it never changes:
+
+```text
+Human safety  >  Process safety  >  Mission  >  Investigation
+```
+
+Catching the attacker (investigation) is the **lowest** priority. If a containment
+action might endanger people or the safe state of the process, you don't take it —
+even if that means the attacker stays connected a while longer. This is the
+opposite of the IT instinct to isolate immediately.
+
+## Generate-only, with a three-stakeholder gate
+
+```bash
+# Generates the firewall ACL / block commands for review — never auto-executes
+./scripts/ics-containment.sh zone-isolate --zone 3 --firewall-ip 10.0.0.1
+./scripts/ics-containment.sh block-protocol --protocol modbus --src 10.1.0.5 --dst 10.2.0.10
+```
+
+Like the IT `containment.sh`, it defaults to generate-only. But execution requires
+**three independent stakeholders to agree** — this can be one coordinated step,
+but it cannot proceed without all three:
+
+```text
+IR Lead            ── the security decision
+Network Operations ── confirms the network change won't break OT comms
+Process Engineer   ── confirms physical safety of isolating that zone/device
+```
+
+No single person — not even the IR lead — can authorize OT containment alone.
+The process engineer's sign-off is the one IT incidents don't have: *will cutting
+this off leave the plant in a safe state?*
+
+## Purdue-zone-aware isolation
+
+Containment operates on the Purdue model's network zones, not individual hosts:
+
+```text
+zone-isolate     firewall-block a Purdue zone (e.g. isolate L3 from L2)
+block-protocol   block a specific OT protocol between two endpoints
+emergency-checklist   the pre-agreed steps for a given zone
+```
+
+You isolate at the IT/OT boundary or between zones where it's safe to do so —
+keeping control and safety systems intact — rather than yanking a field device.
+
+## Why this gate exists
+
+```text
+IT containment:   isolate host now ─▶ worst case: a service is down
+OT containment:   isolate device now ─▶ worst case: unsafe process state, injury
+                                            │
+                                   therefore: 3-stakeholder gate, safety > investigation
+```
+
+The three-stakeholder gate isn't bureaucracy — it's the recognition that an OT
+containment error has physical consequences a security person isn't equipped to
+judge alone. The toolkit encodes this as a hard gate (`three_stakeholder_gate()`)
+so the safest path is the default path. When in doubt in OT, you slow down and get
+the right people in the room before you act.
+
+<Checkpoint
+  id="ot-containment"
+  questions={[
+    {
+      q: "What is the OT decision priority order?",
+      options: [
+        "Investigation > Mission > Process safety > Human safety",
+        "Human safety > Process safety > Mission > Investigation",
+        "Mission > Human safety > Investigation > Process safety",
+        "They're all equal",
+      ],
+      answer: 1,
+      why: "Human safety is paramount and investigation is lowest; catching the attacker never outranks keeping people and the process safe.",
+    },
+    {
+      q: "Why does OT containment require three stakeholders rather than just the IR lead?",
+      options: [
+        "Bureaucratic policy",
+        "An OT containment error has physical consequences; the Process Engineer must confirm isolating a zone leaves the plant safe — a judgment security can't make alone (plus NetO for comms)",
+        "To slow security down for no reason",
+        "Because IT requires it too",
+      ],
+      answer: 1,
+      why: "Only the process engineer can judge physical safety of the action; the gate ensures security, network, and safety all agree.",
+    },
+    {
+      q: "How does OT containment differ in target from IT containment?",
+      options: [
+        "It isolates individual hosts faster",
+        "It operates on Purdue-model zones / protocol flows at safe boundaries, not by yanking a field device — keeping control and safety systems intact",
+        "It powers off the whole plant",
+        "There's no difference",
+      ],
+      answer: 1,
+      why: "OT isolates at zone/boundary level where safe, preserving control/safety systems, rather than isolating a single fragile device.",
+    },
+  ]}
+/>
+
+## Next
+
+That's the full curriculum. Every lesson maps to a real toolkit script — the
+`/reference` page links each technique and script back to the lessons that teach
+it.

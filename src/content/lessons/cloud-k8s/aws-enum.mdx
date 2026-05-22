@@ -1,0 +1,106 @@
+## Read-only, but devastating
+
+Cloud assessment doesn't start with exploitation — it starts with **read-only
+enumeration**. With valid credentials (ReadOnlyAccess or whatever you're given),
+the AWS APIs will tell you almost everything: who can do what, what's public,
+where the secrets are. The findings write themselves; you rarely need to change a
+thing to demonstrate critical risk.
+
+`aws-enum.sh` runs that enumeration. It's read-only by default, gated by an
+authorization confirmation, and routes output into the engagement tree.
+
+## Running it
+
+```bash
+./scripts/aws-enum.sh --profile target --engagement client-2026
+./scripts/aws-enum.sh --scope full --profile audit-readonly --engagement client-2026
+```
+
+It verifies the identity (`sts get-caller-identity`), confirms scope with you,
+then walks the account section by section:
+
+```text
+01 identity        who am I, account, org
+02 IAM             users, MFA status, stale access keys, admin policy attachments
+03 IAM privesc     cloudfox permission paths (PassRole+RunInstances, self-attach, …)
+04 S3              public ACLs/policies, missing encryption, versioning off
+05 EC2             public IPs, IMDSv1-allowing instances, 0.0.0.0/0 security groups
+06 Lambda          functions + env-var secret patterns
+07 RDS             public instances, public snapshots
+08 secrets         Secrets Manager + SSM Parameter Store inventory
+```
+
+`--scope full` adds `cloudfox` all-checks and a `prowler` compliance pass.
+
+## The highest-signal findings
+
+A few AWS misconfigurations are near-universal and high-impact:
+
+- **IMDSv1 allowed** — combined with an SSRF (remember the web track), an attacker
+  reads instance role credentials from `169.254.169.254`. IMDSv2 closes this.
+- **IAM privesc paths** — `iam:PassRole` + `ec2:RunInstances`, or self-attaching a
+  policy, lets a low-priv principal become admin. `cloudfox` maps these.
+- **Public S3 / public RDS snapshots** — data exposure with no exploitation needed.
+- **Secrets in Lambda env vars** — plaintext credentials a read of the config reveals.
+
+## Why enumeration is the assessment
+
+```text
+valid creds (read-only)
+   │
+   ├─ IAM graph ──▶ privesc paths (who can become admin)
+   ├─ S3/RDS ─────▶ public data exposure
+   ├─ EC2 IMDSv1 ─▶ SSRF → role creds
+   └─ secrets ────▶ plaintext creds
+            │
+            ▼
+   critical findings — no resource modified
+```
+
+The cloud's API is its attack surface *and* its audit interface. That's the gift:
+you can prove account-takeover risk (a privesc path to admin) entirely through
+read calls. The reference `data/references/cloud-attack-checklist.md` carries the
+exploitation paths once you've enumerated.
+
+<Checkpoint
+  id="aws-enum"
+  questions={[
+    {
+      q: "Why can read-only AWS enumeration produce critical findings without changing anything?",
+      options: [
+        "It can't — you must exploit to find issues",
+        "The API exposes IAM privesc paths, public data, IMDSv1 exposure, and plaintext secrets — account-takeover risk is provable through read calls alone",
+        "Read-only means low severity",
+        "Only billing data is readable",
+      ],
+      answer: 1,
+      why: "AWS's API is both attack surface and audit interface; reads reveal privesc paths and exposures that constitute critical findings.",
+    },
+    {
+      q: "Why is an IMDSv1-allowing EC2 instance dangerous in combination with SSRF?",
+      options: [
+        "It exposes the hostname",
+        "SSRF to 169.254.169.254 on IMDSv1 returns the instance's IAM role credentials, turning a web bug into cloud access; IMDSv2 mitigates it",
+        "It slows the instance",
+        "It only matters for Lambda",
+      ],
+      answer: 1,
+      why: "IMDSv1 lets an SSRF read role creds from the metadata endpoint — the web and cloud tracks connect here.",
+    },
+    {
+      q: "What does cloudfox add to the IAM section?",
+      options: [
+        "It deletes users",
+        "It maps privilege-escalation paths (e.g. PassRole+RunInstances, policy self-attach) showing who can become admin",
+        "It rotates keys",
+        "It enables MFA",
+      ],
+      answer: 1,
+      why: "cloudfox enumerates dangerous permission combinations into concrete privesc paths, the highest-signal IAM finding.",
+    },
+  ]}
+/>
+
+## Next
+
+Next: the same read-only discipline for Azure/Entra and GCP.
