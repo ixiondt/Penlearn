@@ -34,9 +34,8 @@ jobs:
       - name: Typecheck (blocking)
         run: npx tsc --noEmit
 
-      - name: Lint (non-blocking — pre-existing debt, see DEPLOY.md)
+      - name: Lint (blocking)
         run: npm run lint
-        continue-on-error: true
 
       # --- Build + push image ---
       - uses: docker/setup-buildx-action@v3

@@ -28,7 +28,7 @@ export default function InstallPage() {
       <section style={{ marginTop: "var(--space-2xl)" }}>
         <h2 style={{ marginTop: 0 }}>What is the SecOps toolkit?</h2>
         <p>
-          Most "pentest distributions" (Kali, Parrot, BlackArch) are <em>collections of tools</em>.
+          Most &quot;pentest distributions&quot; (Kali, Parrot, BlackArch) are <em>collections of tools</em>.
           You boot the distro, you have nmap and Metasploit and Burp Suite installed, and you
           figure out your own workflow on top. That works for individual learners, but it
           falls apart the moment you have an engagement to deliver: every operator builds a
@@ -51,7 +51,7 @@ export default function InstallPage() {
             <strong>Generate-by-default, execute-on-confirm.</strong> Active tools
             (containment, msfvenom, persistence audit) produce a script you can read
             <em> before</em> you run it. The default is to draft; the explicit flag is to act.
-            This protects against the "fat-fingered an IP and took down prod" failure mode.
+            This protects against the &quot;fat-fingered an IP and took down prod&quot; failure mode.
           </li>
           <li>
             <strong>Chain of custody for everything.</strong> Every forensic artifact, every
@@ -96,8 +96,8 @@ export default function InstallPage() {
             The toolkit is operational tooling. Penlearn is curriculum. They evolve on
             different timelines: the toolkit gets new scripts when a new TTP needs codifying;
             Penlearn gets new lessons when a topic is ready to teach. Mixing them in one
-            repo would entangle "I&apos;m adding a script" commits with "I&apos;m fixing
-            a typo in a lesson" commits, and you&apos;d lose the ability to ship the
+            repo would entangle &quot;I&apos;m adding a script&quot; commits with &quot;I&apos;m fixing
+            a typo in a lesson&quot; commits, and you&apos;d lose the ability to ship the
             toolkit independently to other teams who don&apos;t care about the training.
             Two repos, one shared discipline.
           </p>

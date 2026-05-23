@@ -84,11 +84,8 @@ returns a Cloudflare IP, not the origin.
 Push (or merge) to `main` → the workflow builds, scans, and ships automatically.
 Manual trigger: `Actions → Deploy → Run workflow`.
 
-Gates: **typecheck** and **Trivy (CRITICAL/HIGH)** are blocking. **Lint** is
-currently non-blocking — there is pre-existing lint debt
-(`react/no-unescaped-entities`, `set-state-in-effect`, anonymous default exports)
-unrelated to deployment. Clean it up, then flip the lint step to blocking by
-removing `continue-on-error: true` in `deploy.yml`.
+Gates: **lint**, **typecheck**, and **Trivy (CRITICAL/HIGH)** are all blocking —
+any failure stops the deploy.
 
 ## Rollback
 

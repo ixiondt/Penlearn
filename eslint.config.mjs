@@ -1,6 +1,8 @@
 import nextPlugin from "eslint-config-next";
 
-export default [
+const config = [
   ...nextPlugin,
   { ignores: ["node_modules/**", ".next/**", "out/**"] },
 ];
+
+export default config;

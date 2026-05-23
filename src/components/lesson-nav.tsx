@@ -8,6 +8,8 @@ import { progressGet, progressToggle } from "@/lib/progress";
 export function LessonNav({ mod, currentId }: { mod: Module; currentId?: string }) {
   const [completed, setCompleted] = useState<Set<string>>(new Set());
 
+  // Hydrate completion state from localStorage after mount (no SSR access) — intentional.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setCompleted(progressGet(mod.id)); }, [mod.id]);
 
   function toggle(id: string) {

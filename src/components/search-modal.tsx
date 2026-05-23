@@ -40,6 +40,8 @@ export function SearchModal({ open, onClose }: Props) {
     if (open) {
       setTimeout(() => inputRef.current?.focus(), 30);
     } else {
+      // Reset search state when the modal closes — intentional.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setQuery("");
       setActive(0);
     }

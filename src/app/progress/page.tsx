@@ -7,6 +7,8 @@ import { progressAll, progressClear } from "@/lib/progress";
 
 export default function ProgressPage() {
   const [store, setStore] = useState<Record<string, string[]>>({});
+  // Hydrate from localStorage after mount (unavailable during SSR) — intentional.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setStore(progressAll()); }, []);
 
   const totalLessons = modules.reduce((a, m) => a + m.lessons.length, 0);
