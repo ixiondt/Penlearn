@@ -8,6 +8,7 @@ import { SearchTrigger } from "./search-trigger";
 const links = [
   { href: "/", label: "Home" },
   { href: "/modules", label: "Curriculum" },
+  { href: "/paths", label: "Paths" },
   { href: "/labs", label: "Labs" },
   { href: "/install", label: "Install" },
   { href: "/reference", label: "Reference" },

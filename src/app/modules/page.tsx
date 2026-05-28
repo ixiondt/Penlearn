@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { modules, trackTitle } from "@/content/curriculum";
 import { ModuleCard } from "@/components/module-card";
 import type { Track } from "@/lib/types";
@@ -17,6 +18,10 @@ export default function ModulesPage() {
           Modules group lessons by track. Foundations is non-optional. Beyond that, the tracks roughly follow the
           SecOps toolkit modes: passive recon → active recon → exploitation → defense → ICS/OT → reporting. You can
           pick the track that matches your role and skip the others, or work through linearly.
+        </p>
+        <p style={{ color: "var(--color-fg-1)", maxWidth: "65ch", marginTop: "var(--space-md)" }}>
+          Not sure where to start? <Link href="/paths" style={{ color: "var(--color-accent-1)" }}>Follow a role-based learning path</Link> —
+          an ordered route through these modules tuned for Red Team, SOC, DFIR, ICS/OT (GRID), Cloud, AI, or full-lifecycle Purple.
         </p>
       </header>
 

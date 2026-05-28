@@ -38,3 +38,21 @@ export interface Lab {
   hasVagrant?: boolean;
   hasTerraform?: boolean;
 }
+
+export type PathEmphasis = "core" | "supporting" | "optional";
+
+export interface PathStep {
+  moduleId: string;
+  emphasis: PathEmphasis;
+  note?: string;
+}
+
+export interface LearningPath {
+  id: string;
+  role: string;
+  tagline: string;
+  audience: string;
+  outcomes: string[];
+  steps: PathStep[];
+  cert?: string;
+}

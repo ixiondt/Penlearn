@@ -1,4 +1,4 @@
-import type { Module, Lab } from "@/lib/types";
+import type { Module, Lab, LearningPath } from "@/lib/types";
 
 export const modules: Module[] = [
   {
@@ -686,6 +686,179 @@ export const labs: Lab[] = [
     composeFile: "labs/09-ai-redteam/docker-compose.yml",
   },
 ];
+
+// ============================================================
+// Role-based learning paths
+// Each path is an ordered walk through existing modules, tagged by emphasis.
+// "core" = do it fully; "supporting" = do the lessons relevant to the role;
+// "optional" = nice-to-have / adjacent skill.
+// ============================================================
+export const paths: LearningPath[] = [
+  {
+    id: "red-team",
+    role: "Red Team Operator",
+    tagline: "External-to-internal offensive lifecycle — recon through post-exploitation.",
+    audience:
+      "Penetration testers and red teamers who need the full offensive chain: find the surface, get in, move, and prove impact — with authorization discipline throughout.",
+    outcomes: [
+      "Run passive then active recon without tipping scope boundaries",
+      "Exploit web, AD, and host targets with the Metasploit workflow",
+      "Pivot and establish footholds, then map blast radius",
+      "Hand clean findings to the reporting pipeline",
+    ],
+    steps: [
+      { moduleId: "foundations", emphasis: "core", note: "Authorization is the gate on everything that follows." },
+      { moduleId: "passive-recon", emphasis: "core" },
+      { moduleId: "active-recon", emphasis: "core" },
+      { moduleId: "web-app", emphasis: "core" },
+      { moduleId: "metasploit", emphasis: "core" },
+      { moduleId: "ad-attacks", emphasis: "core", note: "Most internal engagements live or die on the AD attack graph." },
+      { moduleId: "cloud-k8s", emphasis: "supporting", note: "Increasingly in-scope — cover if the target has cloud footprint." },
+      { moduleId: "ai-security", emphasis: "optional", note: "When the target ships an LLM feature." },
+      { moduleId: "reporting", emphasis: "core" },
+    ],
+  },
+  {
+    id: "soc-hunter",
+    role: "SOC Analyst / Threat Hunter",
+    tagline: "Hypothesis-driven detection — turn intel into rules that fire.",
+    audience:
+      "Detection engineers and hunters who confirm true positives, author detections, and decide when to escalate to IR.",
+    outcomes: [
+      "Frame testable hunt hypotheses tied to your environment",
+      "Author and tune Sigma rules across 36 ATT&CK techniques",
+      "Recognize AiTM/evilginx phishing and the IT→OT pivot signal",
+      "Know exactly where SOC hands off to incident response",
+    ],
+    steps: [
+      { moduleId: "foundations", emphasis: "core", note: "ATT&CK fluency is the shared language of detection." },
+      { moduleId: "soc-hunt", emphasis: "core" },
+      { moduleId: "passive-recon", emphasis: "supporting", note: "IOC enrichment and infrastructure clustering — the --ioc workflow." },
+      { moduleId: "ir-core", emphasis: "supporting", note: "Detection → handoff: understand what IR does with your escalation." },
+      { moduleId: "reporting", emphasis: "supporting", note: "VECTR coverage tracking closes the detection-gap loop." },
+    ],
+  },
+  {
+    id: "dfir",
+    role: "Incident Responder (DFIR)",
+    tagline: "Confirmed compromise → investigate, contain, eradicate, recover.",
+    audience:
+      "Incident responders driving an incident from SOC handoff through closure, with evidence-before-remediation discipline.",
+    outcomes: [
+      "Run RFC 3227-ordered forensic collection (PB-016)",
+      "Enumerate persistence across Linux + Windows + OT",
+      "Contain with reversibility and preserve chain of custody",
+      "Re-hunt stored PCAPs for late-arriving IOCs and build the timeline",
+    ],
+    steps: [
+      { moduleId: "foundations", emphasis: "core" },
+      { moduleId: "ir-core", emphasis: "core" },
+      { moduleId: "soc-hunt", emphasis: "supporting", note: "You consume detections and author new ones from incident findings." },
+      { moduleId: "ot-ics", emphasis: "optional", note: "Add the OT lessons if you respond in industrial environments." },
+      { moduleId: "reporting", emphasis: "core", note: "Timeline, AAR, and STIX export are IR deliverables." },
+    ],
+  },
+  {
+    id: "ics-defender",
+    role: "ICS / OT Defender",
+    tagline: "Safety-first defense of industrial environments — the GRID track.",
+    cert: "GIAC GRID / SANS ICS515",
+    audience:
+      "OT security engineers and ICS incident responders. Human safety > process safety > mission > investigation, always.",
+    outcomes: [
+      "Apply the Purdue model and the three-stakeholder containment gate",
+      "Run the Active Cyber Defense Cycle end-to-end on an OT engagement",
+      "Build Diamond Models and Crown Jewel registers for ICS intrusions",
+      "Triage ICS malware with YARA and HMI/EWS memory forensics",
+    ],
+    steps: [
+      { moduleId: "foundations", emphasis: "core" },
+      { moduleId: "ir-core", emphasis: "supporting", note: "OT IR builds on the IT IR fundamentals — know them first." },
+      { moduleId: "ot-ics", emphasis: "core", note: "All 8 lessons — this is the heart of the GRID track." },
+      { moduleId: "soc-hunt", emphasis: "supporting", note: "Sigma authoring for the 10 ICS ATT&CK techniques (T08xx)." },
+      { moduleId: "reporting", emphasis: "supporting" },
+    ],
+  },
+  {
+    id: "cloud-security",
+    role: "Cloud & Container Security",
+    tagline: "Multi-cloud and Kubernetes enumeration and escape paths.",
+    audience:
+      "Cloud security engineers and pentesters assessing AWS / Azure / GCP / Kubernetes estates read-only first, then attack paths.",
+    outcomes: [
+      "Run read-only enumeration across AWS, Azure/Entra, and GCP",
+      "Map IAM privilege-escalation paths and exposed surface",
+      "Audit Kubernetes RBAC and container-escape surface",
+      "Feed cloud findings into the standard scoring + reporting pipeline",
+    ],
+    steps: [
+      { moduleId: "foundations", emphasis: "core" },
+      { moduleId: "passive-recon", emphasis: "supporting", note: "Infrastructure clustering and exposed-asset discovery." },
+      { moduleId: "active-recon", emphasis: "supporting", note: "Service enumeration fundamentals carry into cloud workloads." },
+      { moduleId: "cloud-k8s", emphasis: "core" },
+      { moduleId: "reporting", emphasis: "core" },
+    ],
+  },
+  {
+    id: "ai-security",
+    role: "AI / LLM Security Specialist",
+    tagline: "Red-team LLM features and the insecure-output blast radius.",
+    audience:
+      "Security engineers assessing products that embed LLMs — prompt injection, RAG poisoning, tool abuse, and where model output becomes XSS/SQLi/SSRF.",
+    outcomes: [
+      "Map the LLM attack surface and the OWASP LLM Top 10 / MITRE ATLAS",
+      "Scan models with garak via ai-redteam.sh",
+      "Trace insecure output handling into classic web vulns",
+      "Report LLM findings with the same rigor as any other finding",
+    ],
+    steps: [
+      { moduleId: "foundations", emphasis: "core" },
+      { moduleId: "ai-security", emphasis: "core" },
+      { moduleId: "web-app", emphasis: "supporting", note: "Insecure LLM output usually lands as XSS / SQLi / SSRF — know the sinks." },
+      { moduleId: "reporting", emphasis: "supporting" },
+    ],
+  },
+  {
+    id: "purple-full",
+    role: "Full Lifecycle (Purple)",
+    tagline: "Everything, in order — offense and defense as two sides of one coin.",
+    audience:
+      "Purple teamers, security leads, and anyone who wants the complete picture from recon through ICS response to reporting.",
+    outcomes: [
+      "Operate fluently in all three modes: hunt, defend, restore",
+      "Translate offensive findings directly into detections",
+      "Cover IT, cloud, AD, AI, and ICS/OT surfaces",
+      "Close the loop: attack → detect → respond → report → harden",
+    ],
+    steps: [
+      { moduleId: "foundations", emphasis: "core" },
+      { moduleId: "passive-recon", emphasis: "core" },
+      { moduleId: "active-recon", emphasis: "core" },
+      { moduleId: "web-app", emphasis: "core" },
+      { moduleId: "metasploit", emphasis: "core" },
+      { moduleId: "ad-attacks", emphasis: "core" },
+      { moduleId: "cloud-k8s", emphasis: "core" },
+      { moduleId: "ai-security", emphasis: "core" },
+      { moduleId: "soc-hunt", emphasis: "core" },
+      { moduleId: "ir-core", emphasis: "core" },
+      { moduleId: "ot-ics", emphasis: "core" },
+      { moduleId: "reporting", emphasis: "core" },
+    ],
+  },
+];
+
+export function getPath(id: string): LearningPath | undefined {
+  return paths.find((p) => p.id === id);
+}
+
+/** Total estimated minutes for a path, summing the minutes of every module it walks. */
+export function pathMinutes(p: LearningPath): number {
+  return p.steps.reduce((sum, step) => {
+    const mod = getModule(step.moduleId);
+    if (!mod) return sum;
+    return sum + mod.lessons.reduce((a, l) => a + l.minutes, 0);
+  }, 0);
+}
 
 export function getModule(id: string): Module | undefined {
   return modules.find((m) => m.id === id);
