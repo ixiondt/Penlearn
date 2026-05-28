@@ -1,0 +1,98 @@
+## The wrong asset register breaks containment
+
+Every IT team has an asset inventory. Most of them are organised by **what the
+asset is** (hostname, OS, IP). That's not enough for ACDC's Step 2. The defender
+needs to know **what would break if the asset stopped working**, **what depends
+on it**, and **what an adversary would want from it**. Without those three
+dimensions, you cannot make a safe containment call in Step 4.
+
+The artifact that captures all three is a **Crown Jewel Register**.
+
+## Three dimensions of "asset"
+
+| Dimension | Question it answers |
+|-----------|---------------------|
+| Technical | What is it — hostname, OS, role, network position? |
+| Business | What mission does it support? Who owns it? What's the SLA? |
+| Adversarial | What would an attacker want from or do to it? |
+
+The third dimension is the one most asset databases miss. It's also the one
+that links your asset register to your hunt hypotheses and your detection rules.
+
+## The toolkit script
+
+```bash
+# Add one asset (interactive — fill in everything you know)
+./scripts/crown-jewel.sh add --engagement acme-q2 --name 'SCADA-MTU-01' \
+  --owner 'OT Ops' \
+  --purdue 2 \
+  --criticality CRITICAL \
+  --sector Electric \
+  --deps 'AD,DNS,Historian-PI' \
+  --threats 'Operate IED,Disable safety' \
+  --attck 'T0855,T0858'
+
+# Bulk import from a CSV or JSON
+./scripts/crown-jewel.sh import --engagement acme-q2 --input assets.csv
+
+# Render — sorted by criticality, with adversary-goal context inline
+./scripts/crown-jewel.sh render --engagement acme-q2 --format md
+./scripts/crown-jewel.sh render --engagement acme-q2 --format html
+```
+
+A finished register lives at
+`~/assessments/<engagement>/02-active-recon/crown-jewels.json`. The same
+script can write under `~/incidents/<id>/02-scope/` for IR engagements.
+
+## Why "dependencies" is the most important field
+
+If you contain SCADA-MTU-01 and your operator console depends on it, you've
+just made the OT environment less safe than the intrusion was. **You cannot
+defend what you do not understand the dependencies of.**
+
+Walk the dependency chain in both directions:
+
+- **What does this asset need to function?** (AD, DNS, NTP, historian, jump host)
+- **What needs this asset to function?** (operator UI, alarm system, downstream PLCs)
+
+Both lists get into the register. When Step 4 (containment) starts, the
+process engineer reads the dependencies before any isolation action is approved.
+
+## Why "adversary goals" sit alongside the asset
+
+Hunt hypotheses in Step 1 are phrased as "if [adversary] is doing [TTP] in
+our environment, we should see [observable] in [data source] at [logical
+location]." The Crown Jewel register tells you the *logical location*. The
+adversary-goals column tells you which TTPs are worth hunting against that
+asset specifically.
+
+For SCADA-MTU-01 (a Master Terminal Unit running Modbus to a fleet of PLCs):
+
+- Adversary goal: "operate IEDs" → hunt for T0855 (Unauthorized Command Message), T0858 (Change Operating Mode)
+- Adversary goal: "disable safety" → hunt for T0826 (Loss of Availability), T0816 (Device Restart/Shutdown)
+- Adversary goal: "stage future attack" → hunt for T0846 (Remote System Discovery), T0852 (Screen Capture)
+
+## How this feeds Step 4
+
+Containment in OT environments uses the **three-stakeholder gate** (IR Lead +
+Network Operations + Process Engineer). The process engineer's veto exists
+precisely because they understand dependencies the IR team doesn't. A good
+Crown Jewel register front-loads that conversation — the dependencies are
+already documented, the adversary goals are already prioritised, and the
+containment decision becomes "does this action break any documented
+dependency?" rather than "let's call the plant manager and find out."
+
+## How this feeds Step 1 next cycle
+
+When the Course of Action matrix in Step 5 closes detection gaps, those new
+detections should map to specific Crown Jewels — "we now detect T0858 against
+PLC-Heater-Loop-A and PLC-Heater-Loop-B because of the FrostyGoop case."
+That mapping informs Step 1 of the next cycle: detection coverage per crown
+jewel becomes a measurable defensive metric.
+
+## The companion structures
+
+- `data/references/acdc-framework.md` § Step 2 — the full Step 2 deep-dive
+- `data/references/dragos-threat-groups.md` — adversary-goal mapping per group
+- `data/references/ics-protocols-deep.md` — what adversaries *do* at each protocol
+- `data/templates/acdc-hunt-template.md` § Step 2 — fillable section for the engagement

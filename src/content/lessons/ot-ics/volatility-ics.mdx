@@ -1,0 +1,102 @@
+## Why memory forensics first for HMI / EWS
+
+When an HMI or Engineering Workstation is suspect, the disk is rarely the
+fastest source of truth. The interesting state — running processes, network
+connections, injected code, loaded DLLs — lives in RAM. A memory dump
+captured **before** the host is rebooted gives you a snapshot that the disk
+literally cannot reproduce.
+
+The two open-source tools that make sense of those dumps are Volatility 2
+(`vol.py`) and Volatility 3 (`volatility3`). They differ in plugin names —
+`pslist` vs `windows.pslist`, `malfind` vs `windows.malfind` — and which
+profiles or symbol tables they need. The toolkit's `volatility-ics.sh`
+detects which one you have and runs the right names.
+
+## Named plugin chains
+
+Rather than memorising plugin lists, the wrapper exposes **chains** — named
+groups of plugins that answer one triage question end-to-end.
+
+| Chain | What it answers |
+|-------|------------------|
+| `triage` | Process tree, DLLs, handles, command lines, env vars |
+| `network` | Active TCP/UDP, listening sockets, name pipes |
+| `injection` | malfind + ldrmodules + (apihooks on V2) + vadinfo |
+| `persistence` | Services, modules, autoruns, registry hivelist |
+| `creds` | hashdump + lsadump |
+| **`ics`** | **triage + network + injection** — most-used default for HMI/EWS |
+| `ukraine2015` | pslist + connections + filescan for KillDisk strings |
+| `stuxnet` | pslist + malfind + modscan + driverscan |
+
+## The basic workflow
+
+```bash
+# Confirm which Volatility is installed
+./scripts/volatility-ics.sh detect
+
+# List the chains
+./scripts/volatility-ics.sh chains
+
+# Run the ICS triage chain against an HMI memory image
+./scripts/volatility-ics.sh run --chain ics --image hmi.mem --incident-id INC-2026-014
+
+# Stuxnet-flavoured chain — driver scan included for the rootkit drivers
+./scripts/volatility-ics.sh run --chain stuxnet --image plc-eng.mem \
+  --profile Win7SP1x64 --incident-id INC-2026-014
+```
+
+Every plugin's output lands in
+`~/incidents/<INC>/07-evidence/memfor/<timestamp>/`, alongside a `chain.json`
+manifest that lists which plugins ran and how many lines each produced.
+
+## Heuristic flagging — findings.json out of the box
+
+The wrapper post-processes the plugin output to flag interesting hits:
+
+- `malfind` hits → tagged as code injection (T1055).
+- Process command lines with PowerShell `-EncodedCommand` → tagged T1059.001 + T1027.
+- Network sockets on common beacon ports (4444, 8443, 8888) or OT ports (502, 20000, 44818, 4840, 102, 2404) → tagged appropriately.
+- Services or modules launching from per-user `AppData` → T1543.003 / T1547.001 persistence.
+- Specific malware strings — `MrxCls.sys`, `KillDisk`, `haslcfg`, Go binary + Modbus references → critical-severity matches.
+
+The output is a `findings.json` in the same format as every other toolkit
+finding source. That means it feeds straight into `risk-scoring.py`,
+`report-generator.py`, and `scan-db.py import-findings`.
+
+```bash
+# After running a chain, the findings.json is right there in the output dir
+ls ~/incidents/INC-2026-014/07-evidence/memfor/20260527-220500/findings.json
+
+# Risk-score it and roll into the report
+python3 scripts/risk-scoring.py \
+  --findings ~/incidents/INC-2026-014/07-evidence/memfor/*/findings.json \
+  --output scored.json
+python3 scripts/report-generator.py --findings scored.json --output ir-report.docx --summarize
+```
+
+## When to use which chain
+
+- **First responder on a suspect HMI** — run `ics` chain. It covers the three
+  most common triage questions in one shot (what's running, what's it talking
+  to, anything injected) and is what `acdc-cycle.sh step4` expects.
+- **Suspected legacy Sandworm activity** — run `ukraine2015` chain after `ics`.
+  The KillDisk filescan adds confidence one way or the other.
+- **Sample handed over with attribution rumours about Stuxnet-family activity**
+  — run `stuxnet` chain. Driver-scan + module-scan is where MrxCls.sys / MrxNet.sys
+  show up.
+- **Persistence sweep across many hosts** — run `persistence` chain only. Much
+  faster than the full `ics` chain on dozens of images.
+
+## What this isn't
+
+Volatility is not malware analysis — it's *triage*. Hits direct you to the
+files / processes / modules you should pull for deeper static and dynamic
+analysis. Pair it with `ics-yara-gen.sh scan` on any extracted binary, and
+with the Diamond Model template to record what you found.
+
+## Pairs well with
+
+- **`forensics-collect.sh`** — captures the memory image RFC 3227-ordered alongside other artifacts.
+- **`ics-yara-gen.sh`** — confirm any suspect binary against the ICS-malware library.
+- **`diamond-model.py`** — capture the intrusion analysis once the triage points to a family.
+- **`timeline-merge.py`** — fold memory artifact timestamps into the incident timeline.

@@ -1,0 +1,93 @@
+## YARA is the right shape for ICS malware
+
+YARA's "rules over strings and bytes" model fits ICS malware unusually well.
+ICS-targeted malware families tend to embed protocol strings, vendor-specific
+DLL names, configuration files, and product-tag patterns — exactly the things
+YARA matches efficiently. The toolkit ships a library of rules for the ten
+families you most need to recognise.
+
+## Families covered
+
+| Family | What it does | Era |
+|--------|--------------|-----|
+| **Stuxnet** | S7 PLC payload + MrxCls/MrxNet rootkit drivers | 2010 |
+| **BlackEnergy** 2/3 | Plugin-based RAT, Ukraine 2015 pre-positioner | 2014-2015 |
+| **HAVEX** | Dragonfly RAT + OPC scanner module | 2014 |
+| **CRASHOVERRIDE / Industroyer** | Modular IEC-101/104/61850/OPC DA attack toolkit (Ukraine 2016) | 2016 |
+| **Industroyer2** | Single-binary IEC-104 variant (Ukraine 2022 attempt) | 2022 |
+| **TRISIS / TRITON / HATMAN** | Triconex SIS payload (Saudi 2017) | 2017 |
+| **PIPEDREAM** (CHERNOVITE) | Cross-vendor toolkit (Schneider, Omron, OPC UA) | 2022 |
+| **FrostyGoop** | Go binary direct-to-controller Modbus (Lviv heating, 2024) | 2024 |
+| **EKANS** | Ransomware with ICS process kill-list | 2019-2020 |
+| **NotPetya** | IT wiper with massive OT collateral damage (Maersk, Mondelez) | 2017 |
+
+## The toolkit script
+
+```bash
+# List supported families
+./scripts/ics-yara-gen.sh list
+
+# Generate a single family's rule
+./scripts/ics-yara-gen.sh gen --family crashoverride --incident-id INC-2026-014
+
+# Generate all of them into one consolidated file
+./scripts/ics-yara-gen.sh gen-all --output all-ics.yar
+
+# Scan a file or directory (requires yara installed)
+./scripts/ics-yara-gen.sh scan --target /mnt/quarantine/ --incident-id INC-2026-014
+```
+
+Rules include metadata (family, ATT&CK techniques, references, confidence) so
+you can route hits to the right responder, and the scan output is the standard
+yara `-s` (show strings) format — every match shows which strings hit so the
+analyst can validate quickly.
+
+## Triage workflow
+
+The library is a **triage tool**, not an authoritative classifier. Most rules
+are deliberately broad — they're meant to direct manual analysis, not to
+auto-quarantine. Workflow:
+
+1. **Scan** the suspect sample / directory.
+2. **Validate** the hit in a sandbox (don't act on a single rule).
+3. **Pivot to the Diamond Model** — if the hit is real, the family tells you
+   which adversary is plausible and which ATT&CK techniques are in play.
+4. **Update the Course of Action matrix** — what's the right detect / deny /
+   disrupt action for that family in your environment?
+
+```bash
+# Suspect file from forensics-collect → triage
+./scripts/ics-yara-gen.sh scan --target ~/incidents/INC-X/07-evidence/sample.exe \
+  --incident-id INC-X
+
+# Hit on ics_crashoverride_modules → start a diamond
+python3 scripts/diamond-model.py init --intrusion-id INT-X --incident-id INC-X \
+  --adversary 'ELECTRUM (suspected)' --summary 'YARA hit ics_crashoverride_modules'
+python3 scripts/diamond-model.py fill --intrusion-id INT-X --field capability.name \
+  --value 'CRASHOVERRIDE'
+python3 scripts/diamond-model.py fill --intrusion-id INT-X --field capability.yara_rule_ids \
+  --value 'ics_crashoverride_modules'
+```
+
+## A note on rule confidence
+
+Each rule's metadata declares a confidence level:
+
+- **high** — distinctive strings (e.g., TRISIS's `TsLow.dll` + `trilog`) — false positives unlikely.
+- **medium** — overlapping or composable strings — needs sandbox validation.
+- **low** — present for completeness, not for decision-making.
+
+When you trust a rule for blocking decisions, raise the confidence in your
+copy with internal validation; don't act on `medium` rules alone.
+
+## Reference material
+
+- `data/references/ics-malware-families.md` — full per-family field card (what to look for, where it came from, ATT&CK coverage)
+- `data/references/dragos-threat-groups.md` — adversary → family mapping
+- `data/references/ics-protocols-deep.md` — what protocol abuse looks like on the wire, in case you need to write your own rules
+
+## Pairs well with
+
+- **`volatility-ics.sh`** — when you've got a memory dump instead of a file
+- **`sigma-rule-builder.sh --technique T0858`** — to turn the YARA finding into network detection
+- **`cti-export.sh --tlp amber`** — to share the indicators with peers

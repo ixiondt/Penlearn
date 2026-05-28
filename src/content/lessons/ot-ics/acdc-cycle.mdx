@@ -1,0 +1,111 @@
+## The cycle, not the moment
+
+Most defense thinking is event-shaped: "an alert fired, what do we do?" Robert M.
+Lee's **Active Cyber Defense Cycle (ACDC)** reorganizes the work as a continuous
+five-step loop, each step feeding the next, with explicit handoff artifacts.
+Step 5 closes back to Step 1, so what you learn from one intrusion becomes the
+threat intelligence that drives the next iteration.
+
+```text
+1. Threat Intelligence    ──>  2. Asset Identification
+   Consumption                       │
+                                     ▼
+5. Threat & Environment   <──  3. Network Security Monitoring
+   Manipulation                      │
+        ▲                            ▼
+        └─────── 4. Incident Response ──┘
+```
+
+**ACDC is defensive only.** It does not mean "hack back" — every action lives
+inside your own authority boundary. The premise is that the adversary is
+already past the perimeter and that automated tooling missed them, so the
+defender's job is to find them deliberately and turn the engagement into
+intelligence that hardens the environment.
+
+## The toolkit script
+
+`acdc-cycle.sh` scaffolds an ACDC workspace, tracks state per step, and renders
+an After-Action Report at the end:
+
+```bash
+# Stand up a new cycle for a hunt engagement
+./scripts/acdc-cycle.sh init --engagement acme-q2 --scope 'External hunt + OT pivot'
+
+# Move through the steps as the engagement progresses
+./scripts/acdc-cycle.sh step1 --engagement acme-q2 --ti-feed external-ti.json
+./scripts/acdc-cycle.sh step2 --engagement acme-q2 --asset-list crown-jewels.csv
+./scripts/acdc-cycle.sh step3 --engagement acme-q2 --zeek-dir /var/log/zeek/
+./scripts/acdc-cycle.sh step4 --engagement acme-q2 --incident-id INC-2026-014
+./scripts/acdc-cycle.sh step5 --engagement acme-q2
+
+# Check status any time
+./scripts/acdc-cycle.sh status --engagement acme-q2
+
+# Render the AAR (markdown, ready to share)
+./scripts/acdc-cycle.sh report --engagement acme-q2 --output acdc-aar.md
+```
+
+Each step lives in its own directory under `~/acdc/<engagement>/`, with a
+seeded `README.md` that lists the required artifacts and the toolkit commands
+that produce them.
+
+## Step-by-step: what feeds what
+
+**Step 1 — Threat Intelligence Consumption.** You don't "subscribe to feeds";
+you pick what's relevant to your environment, classify it (Strategic /
+Operational / Tactical), translate it into testable hunt hypotheses, and hand
+those to Step 3.
+
+**Step 2 — Asset Identification.** Know what you're defending. Crown jewels,
+dependencies, baselines. The dependencies matter because containment in Step 4
+cannot break the mission — you must know what a Crown Jewel depends on before
+you can isolate anything safely.
+
+**Step 3 — Network Security Monitoring.** Are the things from Step 1 visible
+against the things from Step 2? Three disciplines: **collection** (am I
+capturing what I'd need?), **detection** (will the analytics fire?), **analysis**
+(can a human triage it?).
+
+**Step 4 — Incident Response.** Detection trips, you investigate, contain,
+eradicate, recover. For OT environments, containment is gated by the
+three-stakeholder rule — IR Lead + NetO + Process Engineer must all sign off.
+The Diamond Model artifact lives here.
+
+**Step 5 — Threat & Environment Manipulation.** Within your authority, deny /
+disrupt / degrade the adversary, and harden the environment so the same TTP
+doesn't work twice. Populate the Course of Action matrix; push outbound CTI
+to peers; feed lessons back into Step 1 for the next iteration.
+
+## Closing the loop
+
+You're done with one full ACDC iteration when you can answer three questions
+that will improve next round's Step 1:
+
+1. What new threat actor or TTP did we encounter?
+2. What hunt hypothesis got validated or refuted?
+3. What detection gap did we close?
+
+If you can't answer all three, the cycle isn't done — the weakest step needs
+another pass.
+
+## ACDC vs. other frameworks
+
+ACDC's value is integration: it gives you a structure for how to use the
+others together with named handoffs.
+
+| Framework | When you reach for it |
+|-----------|------------------------|
+| NIST SP 800-61 | Authoritative IR phase model — used **inside** ACDC's Step 4 |
+| SANS Sliding Scale | Architecture → Passive → Active → Intelligence → Offence — ACDC sits in "Active" |
+| ICS Cyber Kill Chain | Adversary-side model — ACDC is the defender-side cycle |
+| Diamond Model | Single-intrusion analysis — fits **inside** Step 4's outputs |
+| MITRE ATT&CK | Technique taxonomy — tag and pivot within every ACDC step |
+
+## Where this fits
+
+The full ACDC reference (per-step deep dive, required artifacts, toolkit
+recipes) lives at `data/references/acdc-framework.md`, and there's a fillable
+engagement template at `data/templates/acdc-hunt-template.md`. The next two
+lessons cover the artifacts most often produced **inside** ACDC: the
+**Diamond Model** for Step 4's intrusion analysis, and **Crown Jewel Analysis**
+for Step 2's asset register.

@@ -1,0 +1,112 @@
+## Why a single-intrusion model
+
+ATT&CK gives you a taxonomy of techniques. A kill chain gives you a sequence
+of phases. Neither tells you how to reason about **one specific intrusion**:
+who did it, with what capability, against whom, over what infrastructure, and
+what does that tell you about everyone else doing it. That's the **Diamond
+Model of Intrusion Analysis** — Caltagirone, Pendergast & Betz, 2013.
+
+```text
+                Adversary
+                   │
+   Infrastructure──┼──Capability
+                   │
+                 Victim
+```
+
+Four core vertices. The premise: **every intrusion event is at minimum these
+four things**, and you can pivot from any vertex to discover the others.
+Known infrastructure? Pivot to other victims hit by the same capability.
+Known capability? Pivot to other adversaries using it.
+
+## Meta-features
+
+Each diamond also carries seven meta-features:
+
+- **Phase** — which kill-chain stage(s) you observed
+- **Result** — success / failure / unknown / aborted
+- **Direction** — adversary→victim, victim→adversary (rare callback), or both
+- **Methodology** — modus operandi label (phishing-and-LLDP-pivot, supply-chain, direct-OT)
+- **Resources** — what the adversary needed (ICS knowledge, OPC UA stack, legit vendor cred)
+- **Social-Political** — geopolitical context (sanctions, conflict, election cycle)
+- **Technology** — underlying tech in play (ports, OS, protocols, frameworks)
+
+A diamond without meta-features is a noun. A diamond *with* meta-features is
+a model you can compare, cluster, and pivot from.
+
+## The toolkit script
+
+`diamond-model.py` manages diamonds as JSON under `~/diamonds/<intrusion-id>.json`.
+
+```bash
+# Open a new diamond
+python3 scripts/diamond-model.py init \
+  --intrusion-id INT-2026-014 \
+  --incident-id INC-2026-014 \
+  --adversary 'ELECTRUM' \
+  --summary 'Modbus writes from non-EWS host targeting tank-level setpoints'
+
+# Seed all four vertices from an existing findings JSON in one shot
+python3 scripts/diamond-model.py from-finding \
+  --findings ~/incidents/INC-2026-014/findings.json \
+  --intrusion-id INT-2026-014 \
+  --incident-id INC-2026-014
+
+# Fill a field by dotted path (set or append to a list)
+python3 scripts/diamond-model.py fill --intrusion-id INT-2026-014 \
+  --field capability.name --value 'CRASHOVERRIDE'
+python3 scripts/diamond-model.py fill --intrusion-id INT-2026-014 \
+  --field capability.attck --value 'T0858'
+python3 scripts/diamond-model.py fill --intrusion-id INT-2026-014 \
+  --field meta.phase --value 'ICS Cyber Kill Chain Stage 2'
+```
+
+## Rendering for review
+
+Four output formats, each for a different consumer:
+
+```bash
+# Compact ASCII diamond — chat / terminal review
+python3 scripts/diamond-model.py render --intrusion-id INT-2026-014 --format ascii
+
+# Markdown — incident write-up, AAR appendix
+python3 scripts/diamond-model.py render --intrusion-id INT-2026-014 --format md
+
+# Mermaid graph — embed in a docs site or Notion page
+python3 scripts/diamond-model.py render --intrusion-id INT-2026-014 --format mermaid
+
+# Self-contained HTML page — exec briefing, share via link
+python3 scripts/diamond-model.py render --intrusion-id INT-2026-014 \
+  --format html --output diamond.html
+```
+
+## Pivots — the most valuable part
+
+A diamond is only useful if it pivots. Document each pivot you take:
+
+- **Infrastructure → Capability** — "the IP `185.0.0.7` we saw is also a known C2 for the FrostyGoop sample".
+- **Capability → Adversary** — "this YARA family is documented as exclusive to KAMACITE".
+- **Adversary → Victim** — "ELECTRUM's prior campaigns hit Ukrainian transmission utilities; we are a transmission utility".
+- **Victim → Capability** — "the sector is FrostyGoop's known target set; expect direct-Modbus writes".
+
+The pivot itself is the analytic step. The diamond records what was learned;
+the *pivots* record how you learned it. Reviewers can audit the reasoning.
+
+## Confidence — explicit, not assumed
+
+A weak diamond with explicit uncertainty beats a strong-sounding one that
+hides its assumptions. For each vertex and meta-feature, state your confidence
+(low / medium / high) and what evidence would shift it. This is what makes the
+diamond *intelligence*, not opinion.
+
+## Where this fits in ACDC
+
+Diamond Model output is the canonical artifact for **ACDC Step 4
+(Incident Response)** — single-intrusion analysis. The detail in the diamond
+then drives **Step 5 (Threat & Environment Manipulation)**: adversary,
+capability, and infrastructure detail feed both the Course of Action matrix
+and outbound CTI exports (`cti-export.sh --tlp amber`).
+
+A full fillable template lives at `data/templates/diamond-model-template.md`.
+The next lesson covers **Crown Jewel Analysis** — the Step 2 artifact that
+makes Step 4 containment decisions possible.

@@ -464,7 +464,7 @@ export const modules: Module[] = [
     track: "ot",
     title: "ICS / OT Safety & Response",
     summary:
-      "Purdue model, three-stakeholder gate, OT-safe containment, ICS ATT&CK (T0xxx), passive-only protocol analysis.",
+      "Purdue model, three-stakeholder gate, OT-safe containment, ICS ATT&CK (T0xxx), passive-only protocol analysis, ACDC framework, Diamond Model, Crown Jewel Analysis, ICS-malware YARA, HMI/EWS memory forensics — ICS515-derived end-to-end.",
     prerequisites: ["foundations", "ir-core"],
     mode: "defense",
     lessons: [
@@ -495,6 +495,58 @@ export const modules: Module[] = [
         minutes: 45,
         difficulty: "advanced",
         scripts: ["ics-containment.sh"],
+      },
+      {
+        id: "acdc-cycle",
+        title: "Active Cyber Defense Cycle (ACDC)",
+        summary:
+          "Robert M. Lee's 5-step defensive cycle: TI Consumption → Asset ID → NSM → IR → Threat/Env Manipulation. Each step feeds the next, the loop closes.",
+        minutes: 50,
+        difficulty: "core",
+        scripts: ["acdc-cycle.sh"],
+        docs: ["data/references/acdc-framework.md", "data/templates/acdc-hunt-template.md"],
+      },
+      {
+        id: "diamond-model",
+        title: "Diamond Model of Intrusion Analysis",
+        summary:
+          "Adversary / Capability / Infrastructure / Victim + 7 meta-features. Pivot from any vertex. Used inside ACDC Step 4. Renders ascii / md / mermaid / html.",
+        minutes: 45,
+        difficulty: "core",
+        scripts: ["diamond-model.py"],
+        docs: ["data/templates/diamond-model-template.md"],
+      },
+      {
+        id: "crown-jewel",
+        title: "Crown Jewel Analysis",
+        summary:
+          "Asset register with three dimensions — technical, business, adversarial. Dependencies make containment safe. Adversary goals route hunt hypotheses.",
+        minutes: 35,
+        difficulty: "core",
+        scripts: ["crown-jewel.sh"],
+        docs: ["data/references/acdc-framework.md"],
+      },
+      {
+        id: "ics-yara",
+        title: "ICS Malware YARA Library",
+        summary:
+          "Rules for the 10 major ICS malware families — Stuxnet, BlackEnergy, HAVEX, CRASHOVERRIDE, Industroyer2, TRISIS, PIPEDREAM, FrostyGoop, EKANS, NotPetya — with scan workflow.",
+        minutes: 40,
+        difficulty: "core",
+        scripts: ["ics-yara-gen.sh"],
+        docs: ["data/references/ics-malware-families.md", "data/references/dragos-threat-groups.md"],
+        attck: ["T0855", "T0858", "T0857", "T0834", "T0848"],
+      },
+      {
+        id: "volatility-ics",
+        title: "Volatility for HMI / EWS Memory Triage",
+        summary:
+          "Volatility 2/3 wrapper with named plugin chains (triage / network / injection / persistence / ics / ukraine2015 / stuxnet) — heuristic flagging emits findings.json.",
+        minutes: 50,
+        difficulty: "advanced",
+        scripts: ["volatility-ics.sh"],
+        docs: ["data/references/grid-cert-quickref.md"],
+        attck: ["T1055", "T1543.003", "T1547.001", "T1059.001"],
       },
     ],
   },
