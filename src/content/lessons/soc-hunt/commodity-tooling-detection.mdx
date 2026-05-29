@@ -1,0 +1,178 @@
+## Why this lesson exists
+
+The underground economy doesn't just sell malware — it sells *tradecraft*. Forums trade
+tutorials, leaked playbooks, and "cracked" red-team tools, and the same handful of
+post-exploitation utilities show up in incident after incident. The good news for defenders:
+these tools are noisy. They leave artifacts that are recognizable even when the operator is
+otherwise "living off the land."
+
+This lesson takes five of those tools — three from Impacket, the LOLBin family, and StealBit —
+and shows the specific telemetry each one leaves behind, then maps them to the Sigma rules
+`sigma-rule-builder.sh` generates (T1047, T1569.002, T1003.002, T1218, T1567.002) and the
+H-065 → H-072 hunt cluster.
+
+The throughline, straight from *Dissecting the Dark Web* (Kaye, No Starch 2026): **LOLBin and
+toolkit detection is behavioral.** A signature for "psexec.exe" misses the Python port; what
+doesn't miss is the *service-plus-named-pipe shape* the technique produces regardless of the
+binary's name.
+
+## Impacket wmiexec — the ADMIN$ redirection tell
+
+`wmiexec.py` gives a semi-interactive shell over WMI. The catch — and the gift to defenders —
+is how it retrieves command output. It can't read stdout directly over WMI, so it runs the
+command through `cmd.exe`, redirects output to a file on the **ADMIN$** share, and reads that
+file back over SMB. The process-creation event captures the whole thing in the parent command line:
+
+```text
+ParentCommandLine: cmd.exe /Q /c whoami 1>\\127.0.0.1\ADMIN$\__1739649060.978 2>&1
+```
+
+That `cmd.exe /Q /c … 1>\\<ip>\ADMIN$\__<timestamp> 2>&1` shape is the signature. The matching
+Sigma rule (T1047) keys on the stable substrings `/Q`, `/c`, `\ADMIN$\__`, and `2>&1` together —
+not on the IP, which varies. A second rule catches `WmiPrvSE.exe` spawning `cmd.exe`/`powershell.exe`
+(the WMI service host should rarely parent a shell) and the Conti-playbook
+`wmic /node:<ip> process call create` lateral-movement form.
+
+```bash
+./scripts/sigma-rule-builder.sh --technique T1047 --incident-id INC-2026-001
+```
+
+## Impacket psexec — service + four named pipes
+
+`psexec.py` works completely differently. It uploads a **randomly named executable** to the
+ADMIN$ share (default directory `C:\Windows`), registers it as a service via RPC and the Service
+Control Manager, and talks to it over named pipes. If the operator doesn't supply their own
+binary, Impacket ships the **RemCom** service.
+
+That produces a very loud cluster of events:
+
+- **Event 7045** (service install) — service `RemComSvc` (or a random name) with an ImagePath in `\Windows\`
+- **Four named pipes** (Sysmon Event 17/18): `\RemCom_communicaton`, `\RemCom_stdin`, `\RemCom_stdout`, `\RemCom_stderr` (Sysinternals PsExec uses `PSEXESVC`)
+- A registry event for the service registration, and the process-create for the command
+
+As the book puts it: *"if you're thinking psexec seems very noisy, you're absolutely correct."*
+The Sigma rules (T1569.002) split this into a 7045-service-install rule and a named-pipe rule —
+two independent detections for the same technique, so losing one log source doesn't blind you.
+
+```bash
+./scripts/sigma-rule-builder.sh --technique T1569.002 --incident-id INC-2026-001
+```
+
+## secretsdump — SAM/SECURITY/SYSTEM hive extraction
+
+`secretsdump.py` pulls password hashes. In local mode it reads the SAM. In its remote mode it
+enables the **RemoteRegistry** service, saves copies of the SAM, SECURITY, and SYSTEM hives, and
+retrieves them over SMB. So the artifact set is:
+
+- `RemoteRegistry` service transitioning to running on a host that doesn't normally run it (Event 7036/7040)
+- creation / SMB read of hive copies (often `System32\*.tmp`)
+- in the reg-save variant: `reg.exe save hklm\sam …`
+
+The Sigma rule (T1003.002) targets the `reg save` of sensitive hives; the RemoteRegistry-plus-hive
+pattern is documented as a hunt (H-067) because it spans two log sources and is better expressed
+as a correlation than a single rule. Note that secretsdump's DRSUAPI mode is **DCSync** —
+covered separately by T1003.006 / H-046.
+
+## LOLBins — behavioral, not signature
+
+Chapter 9's leaked Conti playbook is a catalog of living-off-the-land binaries: `wmic`,
+`bitsadmin`, `certutil`, `mshta`, `regsvr32`, `net`, `dsquery`. They're built into Windows, so
+you can't just block them. Detection relies on **behavioral indicators**:
+
+- `bitsadmin /transfer` pulling a remote payload
+- `certutil -urlcache -f http://…` downloading a file
+- `mshta http(s):` / `javascript:` executing remote script
+- `regsvr32 /i:<url> scrobj.dll` (squiblydoo)
+- a LOLBin with an **unexpected parent** (Office, a scripting engine) or making an **unexpected external connection**
+
+The Sigma rules (T1218) cover the bitsadmin download and the certutil/mshta/regsvr32 proxy-execution
+forms. The book's framing is the key takeaway: *"a detection strategy built exclusively around
+signatures for known-malicious tools will miss a significant share of malicious activity."*
+
+```bash
+./scripts/sigma-rule-builder.sh --technique T1218 --incident-id INC-2026-001
+```
+
+## StealBit — a distinctive pipe and a PUT
+
+StealBit is LockBit's bespoke exfiltration tool. Unlike pure LOLBin exfil, it's a known-bad
+binary that EDR will often flag on drop — but if it runs, it leaves two strong tells:
+
+- a Sysmon Event 17 for the named pipe **`\STEALBIT-MASTER-PIPE`** (essentially unique to StealBit)
+- bulk outbound **HTTP `PUT`** requests to a hardcoded IP, using `wininet`/`ws2_32` APIs
+
+The Sigma rules (T1567.002) give you a high-confidence named-pipe rule plus a tunable
+"outbound PUT to rare destination" proxy rule — the latter generalizes to other web-service
+exfil tools once you baseline your sanctioned PUT destinations.
+
+```bash
+./scripts/sigma-rule-builder.sh --technique T1567.002 --incident-id INC-2026-001
+```
+
+## The hunt cluster (H-065 → H-072)
+
+`docs/soc-reference.md` §2.8 turns all of this into eight hunt hypotheses:
+
+| ID | Hunt |
+|----|------|
+| H-065 | wmiexec / WMIC remote execution (ADMIN$ redirection) |
+| H-066 | psexec service execution (RemCom / PSEXESVC pipes) |
+| H-067 | secretsdump via RemoteRegistry + hive copies |
+| H-068 | LOLBin download cradle / proxy execution |
+| H-069 | StealBit / web-service exfil |
+| H-070 | Packed / crypted payload dropped to disk (ties to the IR triage lesson) |
+| H-071 | Info-stealer browser-credential harvest |
+| H-072 | Ransomware pre-encryption recovery inhibition |
+
+Two prerequisites make or break this whole cluster: **Sysmon must log pipe-creation events**
+(many default configs omit Event 17/18) and **command-line auditing must be on** (Security 4688
+with command line, or Sysmon Event 1). Without those, half these rules have nothing to match.
+
+<Checkpoint
+  id="commodity-tooling-detection"
+  questions={[
+    {
+      q: "You see a process-creation event with ParentCommandLine `cmd.exe /Q /c whoami 1>\\\\127.0.0.1\\ADMIN$\\__1700000000.12 2>&1`. What is the most likely cause?",
+      options: [
+        "A legitimate scheduled task",
+        "Impacket wmiexec retrieving command output via the ADMIN$ share over SMB",
+        "A Windows Update component",
+        "PsExec service execution",
+      ],
+      answer: 1,
+      why: "The `/Q /c … 1>\\\\<ip>\\ADMIN$\\__<timestamp> 2>&1` shape is wmiexec's output-retrieval artifact. It can't read stdout over WMI directly, so it writes to ADMIN$ and reads it back over SMB.",
+    },
+    {
+      q: "Why does sigma-rule-builder.sh emit a named-pipe rule (RemCom_communicaton / PSEXESVC) AND a 7045 service-install rule for T1569.002, instead of one combined rule?",
+      options: [
+        "To generate more rules for the report",
+        "So losing one log source (pipes OR system service log) doesn't blind you to the technique",
+        "Because Sigma can't express both in one rule",
+        "The pipe rule is for Linux and the service rule is for Windows",
+      ],
+      answer: 1,
+      why: "Two independent detections for the same technique give resilience: if pipe logging is off but the System log is shipping (or vice versa), you still catch psexec. Redundant, correlated coverage is deliberate.",
+    },
+    {
+      q: "Per the book, why is signature-based blocking of named-malicious tools insufficient against LOLBin abuse?",
+      options: [
+        "LOLBins are encrypted",
+        "LOLBins are legitimate built-in Windows binaries; abuse is detected behaviorally (unusual parent-child, unexpected external connections, scripting-engine-created tasks), not by name",
+        "LOLBins only run in memory",
+        "Antivirus already blocks all of them",
+      ],
+      answer: 1,
+      why: "certutil, bitsadmin, mshta, regsvr32 etc. are signed Windows binaries you can't blocklist. Detection has to key on behavior: who launched it, what it connected to, what it spawned.",
+    },
+  ]}
+/>
+
+## Action items
+
+1. Confirm Sysmon is logging Event 17/18 (pipe create/connect) and that command-line auditing is on. If not, fix that first — most of these rules depend on it.
+2. Generate the five rule sets: `for t in T1047 T1569.002 T1003.002 T1218 T1567.002; do ./scripts/sigma-rule-builder.sh --technique $t --incident-id INC-2026-001; done`.
+3. Backtest each against 30–90 days of telemetry; tune filters for your sanctioned admin tooling (PsExec, RemoteRegistry hosts, BITS-based updaters).
+4. Stand up the H-065 → H-072 hunts in `docs/soc-reference.md` §2.8 and answer the baseline questions for your environment.
+5. Pair this with the IR triage lesson — H-070 (packed payloads) is detected on the file side, not the log side.
+
+Next lesson: cross over to **IR Core → Commodity Malware Triage** to handle the payloads these techniques deliver.

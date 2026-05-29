@@ -370,7 +370,7 @@ export const modules: Module[] = [
     track: "soc",
     title: "SOC Detection & Hunt Hypotheses",
     summary:
-      "The 64-hypothesis catalog as a hunting methodology — H-001 through H-064 across endpoint, AD, web, AiTM, and ICS.",
+      "The 72-hypothesis catalog as a hunting methodology — H-001 through H-072 across endpoint, AD, web, AiTM, threat-actor tooling, and ICS.",
     prerequisites: ["foundations"],
     mode: "defense",
     lessons: [
@@ -387,7 +387,7 @@ export const modules: Module[] = [
         id: "sigma-rules",
         title: "Authoring Sigma Rules",
         summary:
-          "26 IT + 6 ICS techniques covered by sigma-rule-builder.sh — UAC bypass, DLL hijack, Kerberoasting, AiTM token replay.",
+          "31 IT + 10 ICS techniques covered by sigma-rule-builder.sh — UAC bypass, DLL hijack, Kerberoasting, AiTM token replay, Impacket / LOLBin / StealBit.",
         minutes: 60,
         difficulty: "core",
         scripts: ["sigma-rule-builder.sh"],
@@ -404,6 +404,19 @@ export const modules: Module[] = [
         difficulty: "advanced",
         docs: ["data/references/aitm-defense-checklist.md"],
         attck: ["T1539", "T1078.004", "T1556.006"],
+      },
+      {
+        id: "commodity-tooling-detection",
+        title: "Detecting Impacket, LOLBins & StealBit",
+        summary:
+          "Post-exploitation toolkit artifacts: wmiexec ADMIN$ redirection, psexec RemCom pipes, secretsdump hive extraction, LOLBin download cradles, StealBit exfil. Sigma T1047/T1569.002/T1003.002/T1218/T1567.002, hunts H-065 → H-072.",
+        minutes: 55,
+        difficulty: "advanced",
+        scripts: ["sigma-rule-builder.sh"],
+        docs: ["docs/soc-reference.md §2.8"],
+        attck: ["T1047", "T1569.002", "T1003.002", "T1218", "T1567.002"],
+        hasLab: true,
+        labId: "07-sigma-lab",
       },
     ],
   },
@@ -455,6 +468,16 @@ export const modules: Module[] = [
         minutes: 50,
         difficulty: "core",
         scripts: ["pcap-analysis.sh", "pcap-hunt.sh", "ioc-enrich.sh"],
+      },
+      {
+        id: "malware-triage",
+        title: "Commodity Malware Triage — Entropy & YARA",
+        summary:
+          "Triage suspected payloads before deep analysis: packer/crypter entropy (Shannon per PE section, .data/.text ratio, packer section names) with entropy-triage.py, then a 10-family commodity-malware YARA library (REvil, ALPHV, LockBit, Raccoon, TrickBot, BunnyLoader, …).",
+        minutes: 50,
+        difficulty: "core",
+        scripts: ["entropy-triage.py", "malware-yara-gen.sh"],
+        attck: ["T1027.002", "T1486", "T1555.003"],
       },
     ],
   },
@@ -726,7 +749,7 @@ export const paths: LearningPath[] = [
       "Detection engineers and hunters who confirm true positives, author detections, and decide when to escalate to IR.",
     outcomes: [
       "Frame testable hunt hypotheses tied to your environment",
-      "Author and tune Sigma rules across 36 ATT&CK techniques",
+      "Author and tune Sigma rules across 41 ATT&CK techniques",
       "Recognize AiTM/evilginx phishing and the IT→OT pivot signal",
       "Know exactly where SOC hands off to incident response",
     ],

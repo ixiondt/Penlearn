@@ -12,8 +12,10 @@ It's not:
 - A guarantee of low false-positive rate. That's still your job.
 
 The toolkit's `scripts/sigma-rule-builder.sh` generates Sigma rules from ATT&CK technique IDs.
-26 IT + 6 ICS techniques are pre-templated, including the CCTC anti-forensics/privesc set
-and the AiTM phishing set (T1539, T1078.004, T1556.006).
+31 IT + 10 ICS techniques are pre-templated, including the CCTC anti-forensics/privesc set,
+the AiTM phishing set (T1539, T1078.004, T1556.006), and the post-exploitation / LOLBin / exfil
+set (T1047, T1569.002, T1003.002, T1218, T1567.002) — the latter covered in depth in the
+"Detecting Impacket, LOLBins & StealBit" lesson.
 
 ## A minimal Sigma rule
 
@@ -74,9 +76,9 @@ NOTE: confirm svc-/sa-/-bot service-account naming convention matches your envir
 These notes are not optional. A rule deployed without filling them in either fires constantly
 (no filter populated) or never fires (over-filtered placeholder values).
 
-## What the 26 IT techniques cover
+## What the IT techniques cover
 
-The supported set (as of v4.1):
+A representative slice of the supported set (as of v4.1 — 31 IT techniques):
 
 | ATT&CK ID    | Behavior                              | Notes                              |
 |--------------|---------------------------------------|------------------------------------|
@@ -103,8 +105,13 @@ The supported set (as of v4.1):
 | T1570        | Lateral tool transfer                 | SMB write of new binary            |
 | T1574.001    | DLL hijacking                         | Unsigned DLL load near app start   |
 | T1574.009    | Unquoted service path                 | Service install with spaces        |
+| T1047        | WMI execution                         | wmiexec ADMIN$ redirect, WMIC lateral |
+| T1569.002    | Service execution                     | psexec 7045 + RemCom named pipes   |
+| T1003.002    | SAM/SECURITY/SYSTEM hive dump         | secretsdump / reg save             |
+| T1218        | LOLBin proxy execution                | bitsadmin/certutil/mshta/regsvr32  |
+| T1567.002    | Web-service exfiltration              | StealBit pipe + outbound HTTP PUT  |
 
-ICS set (T0xxx): T0855, T0856, T0831, T0846, T0869, T0886.
+ICS set (T0xxx): T0855, T0856, T0831, T0846, T0869, T0886, T0857, T0858, T0834, T0848.
 
 ## Tuning before deployment
 
