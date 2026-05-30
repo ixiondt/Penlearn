@@ -1,5 +1,5 @@
 export type Mode = "passive" | "active" | "defense" | "report" | "all";
-export type Track = "foundations" | "recon" | "exploit" | "soc" | "ir" | "ot" | "report";
+export type Track = "foundations" | "recon" | "exploit" | "soc" | "ir" | "ot" | "report" | "malware";
 export type Difficulty = "intro" | "core" | "advanced";
 
 export interface Lesson {

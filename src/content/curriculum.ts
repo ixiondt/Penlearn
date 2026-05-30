@@ -574,6 +574,78 @@ export const modules: Module[] = [
     ],
   },
   {
+    id: "malware-re",
+    number: "13",
+    track: "malware",
+    title: "Malware RE & the Underground Economy",
+    summary:
+      "Educational deep-dive into the techniques the toolkit's detection scripts respond to: dark-web access, the criminal economy itself, Ghidra-based reverse engineering, unpacking packed/crypted binaries, ransomware cryptography internals, the IAB / phishing-kit market, and C2 framework internals. Sourced from \"Dissecting the Dark Web\" (Kaye, No Starch 2026); leaked-source references via the book's companion repo.",
+    prerequisites: ["foundations", "ir-core"],
+    mode: "all",
+    lessons: [
+      {
+        id: "underground-economy",
+        title: "The Underground Economy",
+        summary:
+          "Who buys and sells on dark-web forums, what's for sale (data / tools / services), how reputation works (vouches, Bitcoin deposits, guarantor escrow, arbitration), and how takedowns + demonetization are shifting the market (Op Talent, 2024 payments down from $1.25B to $814M).",
+        minutes: 45,
+        difficulty: "intro",
+      },
+      {
+        id: "darkweb-access-opsec",
+        title: "Dark-Web Access & OPSEC",
+        summary:
+          "Tor Browser vs Whonix-Workstation, why a VPN + dedicated wipeable workstation matters, finding sites via deepdarkCTI and security reporting, and the legal-risk frame for researchers. No tools-needed lesson — concepts first.",
+        minutes: 40,
+        difficulty: "intro",
+      },
+      {
+        id: "static-re-workflow",
+        title: "Static RE Workflow with Ghidra",
+        summary:
+          "Reading a packed PE in Ghidra: strings, entropy view, section table, finding the unpacking stub via jumps-to-register and freshly-allocated memory, identifying garbage / anti-analysis decoy code. Complements the entropy-triage script with what to do after a file is flagged.",
+        minutes: 60,
+        difficulty: "core",
+        scripts: ["entropy-triage.py"],
+      },
+      {
+        id: "unpacking",
+        title: "Unpacking Packed Malware",
+        summary:
+          "Tofsee case study (book ch.6): GlobalAlloc + VirtualProtect with 0x20*2 evasion of basic detections, FindFirstFileExA/GetLocaleInfoA as garbage-code distractors, dynamic GetProcAddress imports, and the XOR-loop unpacker. When static work hits its limit and you switch to dynamic dumping.",
+        minutes: 55,
+        difficulty: "advanced",
+      },
+      {
+        id: "ransomware-crypto",
+        title: "Ransomware Cryptography Internals",
+        summary:
+          "Sodinokibi / REvil's hybrid scheme: ECIES key wrapping + Salsa20 file encryption, the pk_key / sk_key / 0_key trio in Software\\recfg, and the fast-mode 1 MB shortcut. Why decryptors exist (BlackMatter/DarkSide implementation flaws) and how RaaS economics turn cryptographic mistakes into demonetization.",
+        minutes: 55,
+        difficulty: "advanced",
+        attck: ["T1486"],
+      },
+      {
+        id: "iab-phishing-kits",
+        title: "Initial Access Brokers & Phishing Kits",
+        summary:
+          "The IAB market (who sells RDP / AD / VPN / webshell access), TMChecker (Electron / asar credential-verification tool) and Greatness (heavily obfuscated reverse-proxy phishing kit with b64u / b64e payload markers). How the IAB → ransomware-affiliate chain converts access into payment.",
+        minutes: 50,
+        difficulty: "core",
+        attck: ["T1078", "T1566.002"],
+      },
+      {
+        id: "c2-internals",
+        title: "C2 Framework Internals",
+        summary:
+          "Implant / client / server anatomy, Beacon Object Files (BOFs), Cobalt Strike's design space, and the Vermilion Strike (Linux Cobalt Strike clone) walkthrough — 1-byte XOR 0x69 config deobfuscation, http-get / post-ex / pipename blocks, DNS-as-beacon-channel + HTTP-as-data-channel.",
+        minutes: 55,
+        difficulty: "advanced",
+        attck: ["T1071.001", "T1071.004"],
+      },
+    ],
+  },
+  {
     id: "reporting",
     number: "12",
     track: "report",
@@ -906,5 +978,6 @@ export function trackTitle(t: Module["track"]): string {
     case "ir": return "Incident Response";
     case "ot": return "ICS / OT";
     case "report": return "Reporting";
+    case "malware": return "Malware & Intel";
   }
 }
