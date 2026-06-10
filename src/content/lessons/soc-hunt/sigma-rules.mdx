@@ -12,9 +12,10 @@ It's not:
 - A guarantee of low false-positive rate. That's still your job.
 
 The toolkit's `scripts/sigma-rule-builder.sh` generates Sigma rules from ATT&CK technique IDs.
-31 IT + 10 ICS techniques are pre-templated, including the CCTC anti-forensics/privesc set,
-the AiTM phishing set (T1539, T1078.004, T1556.006), and the post-exploitation / LOLBin / exfil
-set (T1047, T1569.002, T1003.002, T1218, T1567.002) — the latter covered in depth in the
+62 IT + 20 ICS technique handlers are pre-templated (counted as `case` branches in the
+generator), including the CCTC anti-forensics/privesc set, the AiTM phishing set
+(T1539, T1078.004, T1556.006), and the post-exploitation / LOLBin / exfil set
+(T1047, T1569.002, T1003.002, T1218, T1567.002) — the latter covered in depth in the
 "Detecting Impacket, LOLBins & StealBit" lesson.
 
 ## A minimal Sigma rule
@@ -78,7 +79,8 @@ These notes are not optional. A rule deployed without filling them in either fir
 
 ## What the IT techniques cover
 
-A representative slice of the supported set (as of v4.1 — 31 IT techniques):
+A representative slice of the supported set (62 IT technique handlers in
+the current generator — the table below is illustrative, not exhaustive):
 
 | ATT&CK ID    | Behavior                              | Notes                              |
 |--------------|---------------------------------------|------------------------------------|
