@@ -151,11 +151,22 @@ git checkout abc123def`}</code></pre>
         <div style={{ display: "grid", gap: "var(--space-lg)", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", marginTop: "var(--space-lg)" }}>
           <article className="card">
             <h3 style={{ marginTop: 0, fontSize: "1.0625rem" }}>Local install</h3>
-            <pre><code>{`# Full install
+            <pre><code>{`# Full install (~60 tools, default profile)
 ./install.sh local
 
-# Minimal — core only, skip Go tools / Ruby / wordlists / network analysis
+# Profile-driven — install only what an engagement needs
+./install.sh local --profile web      # web pentest (~20 tools)
+./install.sh local --profile ir       # IR + forensics (~18 tools)
+./install.sh local --profile ad       # Active Directory (~17 tools)
+
+# Absolute minimum — bootstrap apt + Python core only
 ./install.sh local --minimal`}</code></pre>
+            <p style={{ fontSize: "0.8125rem", color: "var(--color-fg-2)", marginTop: "var(--space-sm)" }}>
+              Profiles match <code>engagement-init.sh --type</code> 1:1 so the toolkit you
+              install matches the work you do. Tool inventory is declared in{" "}
+              <code>data/tools/registry.json</code> (single source of truth); add tools
+              with <code>./scripts/tool-add.sh</code> rather than editing scripts by hand.
+            </p>
             <h4 style={{ fontSize: "0.9375rem", color: "var(--color-fg-0)" }}>Pick this when</h4>
             <ul style={{ fontSize: "0.875rem" }}>
               <li>You&apos;re already on Kali, Ubuntu 22.04+, or Debian 12+</li>
@@ -218,9 +229,12 @@ podman build -t secops-toolkit:latest .`}</code></pre>
           tool, every script, every Python package, and every reference file the toolkit
           expects. Run it immediately after install:
         </p>
-        <pre><code>{`# Local
+        <pre><code>{`# Local — full inventory
 cd ~/Projects/pentest
 ./scripts/env-check.sh
+
+# Local — only what the chosen profile needs
+./scripts/env-check.sh --profile web
 
 # Container (one-shot)
 docker run --rm -it secops-toolkit:latest ./scripts/env-check.sh
@@ -228,7 +242,13 @@ docker run --rm -it secops-toolkit:latest ./scripts/env-check.sh
 # Container (interactive — you'll use this pattern for labs)
 docker run --rm -it secops-toolkit:latest bash
 # inside:
-./scripts/env-check.sh`}</code></pre>
+./scripts/env-check.sh --profile core`}</code></pre>
+        <p style={{ fontSize: "0.8125rem", color: "var(--color-fg-2)" }}>
+          The <code>--profile</code> flag accepts the same values as <code>install.sh</code>:{" "}
+          <code>core | web | infra | ad | ot | ir | phishing | osint | cloud | reporting | full</code>.
+          Pick the one matching your engagement type and you only see checks for tools
+          you actually need.
+        </p>
 
         <h3 style={{ fontSize: "1.0625rem" }}>What env-check actually checks</h3>
         <p>The script is divided into nine grouped sections, mirroring how the toolkit thinks about capabilities:</p>
@@ -275,11 +295,12 @@ docker run --rm -it secops-toolkit:latest bash
         </ol>
 
         <p>
-          Below the tool sections, <code>env-check.sh</code> verifies <strong>all 41 toolkit
-          scripts</strong> are present and that the <strong>5 parsers</strong> in{" "}
-          <code>scripts/parsers/</code> are loadable Python modules. Finally it shows a
-          summary: green checkmarks for found tools, red X&apos;s for missing required tools,
-          yellow for missing optional tools.
+          Below the tool sections, <code>env-check.sh</code>{" "}
+          <strong>auto-discovers scripts</strong> from <code>scripts/</code> and
+          <strong> parsers</strong> from <code>scripts/parsers/</code> — there&apos;s no
+          hardcoded inventory to drift. Finally it shows a summary: green checkmarks for
+          found tools, red X&apos;s for missing required tools, yellow for missing optional
+          tools.
         </p>
 
         <div className="callout callout-warn">
