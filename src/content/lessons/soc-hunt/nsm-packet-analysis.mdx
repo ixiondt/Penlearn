@@ -1,0 +1,104 @@
+## Reading the wire
+
+Detection engineering starts with understanding traffic at the byte level. Before
+you trust a SIEM alert you should be able to pull the capture, isolate the
+conversation, and confirm what actually crossed the wire. This lesson covers the
+NSM analyst's core skills — filtering with tcpdump, reading flags, and writing
+IDS rules — and where `pcap-analysis.sh` and `sigma-rule-builder.sh` automate the
+heavy lifting.
+
+The full command set lives in `data/references/packet-analysis-reference.md`.
+
+## tcpdump and BPF
+
+tcpdump captures and filters with the Berkeley Packet Filter (BPF) language —
+the same syntax Wireshark uses for *capture* filters.
+
+```bash
+tcpdump -nni eth0 -s 0 -w capture.pcap        # capture full packets, no name resolution
+tcpdump -nr capture.pcap 'host 10.0.0.5 and port 443'
+tcpdump -nr capture.pcap 'src 192.168.1.51 and (dst port 22 or 23)'   # parens parsed first
+```
+
+Key flags: `-n` (no name/port resolution), `-e` (Ethernet headers), `-X` (hex +
+ASCII), `-XX` (+Ethernet), `-s 0` (full snaplen), `-w`/`-r` (write/read pcap).
+Primitives combine with `and`/`&&`, `or`/`||`, `not`/`!`.
+
+## TCP flags at byte 13
+
+The TCP flag byte sits at offset 13 of the TCP header. Each flag is one bit:
+
+```text
+URG 32   ACK 16   PSH 8   RST 4   SYN 2   FIN 1
+```
+
+```bash
+tcpdump -nr cap.pcap 'tcp[13] = 2'        # SYN only      (new connection attempts)
+tcpdump -nr cap.pcap 'tcp[13] = 18'       # SYN+ACK only  (2 + 16)
+tcpdump -nr cap.pcap 'tcp[13] & 8 != 0'   # any packet with PSH set (bitwise AND)
+```
+
+`=` is an exact match (those flags and no others); `&` is a bitmask (that bit set,
+regardless of the rest). This is how you spot scans (SYN floods, NULL/XMAS) and
+malformed flag combinations.
+
+## Wireshark: display vs capture filters
+
+Two different filter languages, and mixing them up is the classic beginner trap:
+
+```text
+Capture filter (BPF)    tcp port 443            decides what gets recorded
+Display filter          tcp.port == 443         decides what is shown after capture
+                        http.request.method == "GET"
+                        ip.src == 10.0.0.5
+```
+
+## Snort/Suricata rules
+
+A Snort rule is a **header** (who/what/where) plus **options** in parentheses
+(what to match, what to do):
+
+```text
+action proto src_ip src_port  ->  dst_ip dst_port  ( option:value; ... )
+```
+
+`action` is `alert | log | pass | drop | reject | sdrop` — the blocking actions
+require Snort to run **inline** (NIPS), not on a passive tap. Options are
+semicolon-delimited and fall into general / payload / non-payload / post-detection
+classes:
+
+```text
+alert tcp any any -> 10.10.10.10 80 (
+  msg:"Attempt to access /admin"; flow:established;
+  uricontent:"/admin"; nocase;
+  classtype:web-application-activity; sid:1001234; rev:1; )
+```
+
+The options worth memorizing: `content:"..."` (binary in `|hex|`), `nocase`,
+`offset`/`depth` (where to look), `distance`/`within` (min/max gap between two
+content matches), `flags:+S` (`+` all set, `*` any, `!` none), `flow:established`,
+and the `sid`/`rev` identity. Specific `content` matches are far faster than
+`pcre` — reserve regex for when you truly need it.
+
+**Suricata** speaks the same rule grammar but is multi-threaded; **Zeek** goes
+further, scripting protocol logic and shipping Intelligence + Signature
+frameworks. Snort is still the most common open-source NIDS.
+
+## What the toolkit does for you
+
+```bash
+./scripts/pcap-analysis.sh ingest --pcap capture.pcap --ioc-file iocs.txt --incident-id INC-2026-001
+./scripts/sigma-rule-builder.sh --technique T1059.001 --incident-id INC-2026-001
+```
+
+`pcap-analysis.sh` runs the capture through Zeek and tshark and applies automated
+beacon/C2, DNS-tunnel, and exfil detection on top of your IOC list.
+`sigma-rule-builder.sh` turns a technique or IOC set into portable Sigma/YARA
+detections.
+
+## Where this fits
+
+This is the **detection** half of SOC work: you read traffic to confirm an alert,
+then encode what you learned as a rule so the next occurrence fires automatically.
+Pair it with the hunt-hypothesis framework — a hypothesis tells you *what* to look
+for; packet analysis and rule-writing are *how* you find and catch it.

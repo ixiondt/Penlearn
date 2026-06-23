@@ -135,6 +135,15 @@ export const modules: Module[] = [
         difficulty: "core",
         scripts: ["cve-lookup.sh", "risk-scoring.py"],
       },
+      {
+        id: "network-infrastructure-attacks",
+        title: "Network Infrastructure Attacks (L2/L3)",
+        summary:
+          "Switch, router, and name-resolution attacks and defenses: CAM overflow, VLAN hopping, ARP/DAI, LLMNR/Responder, HSRP/VRRP, amplification, 802.1X PEAP evil-twin, Cisco hardening.",
+        minutes: 40,
+        difficulty: "core",
+        docs: ["data/references/network-infrastructure-attacks.md", "data/references/enumeration-checklist.md"],
+      },
     ],
   },
   {
@@ -396,6 +405,16 @@ export const modules: Module[] = [
         labId: "07-sigma-lab",
       },
       {
+        id: "nsm-packet-analysis",
+        title: "NSM & Packet Analysis",
+        summary:
+          "Read traffic at the byte level: tcpdump/BPF, TCP flag bitmath, Wireshark filters, and Snort/Suricata rule writing — the detection half of SOC work.",
+        minutes: 40,
+        difficulty: "core",
+        scripts: ["pcap-analysis.sh", "sigma-rule-builder.sh"],
+        docs: ["data/references/packet-analysis-reference.md"],
+      },
+      {
         id: "aitm-detection",
         title: "AiTM Phishing Detection",
         summary:
@@ -441,6 +460,16 @@ export const modules: Module[] = [
         attck: ["T1070", "T1059"],
         hasLab: true,
         labId: "08-ir-lab",
+      },
+      {
+        id: "windows-forensic-artifacts",
+        title: "Windows Forensic Artifacts",
+        summary:
+          "Where the evidence lives: registry hives, the SANS Red Poster categories, execution artifacts (Prefetch/Amcache/SRUM/UserAssist), MACB times, and the event IDs that carry an investigation.",
+        minutes: 40,
+        difficulty: "core",
+        scripts: ["forensics-collect.sh", "persistence-audit.sh", "timeline-merge.py"],
+        docs: ["data/references/windows-forensic-artifacts.md"],
       },
       {
         id: "persistence-audit",
@@ -607,6 +636,16 @@ export const modules: Module[] = [
         minutes: 60,
         difficulty: "core",
         scripts: ["entropy-triage.py"],
+      },
+      {
+        id: "malware-analysis-workflow",
+        title: "The Four-Stage Malware Analysis Workflow",
+        summary:
+          "Sequence the pipeline: isolated lab, automated sandbox, static properties, interactive behavior, and manual reversing — plus DLL search-order hijack and anti-debugging defeat.",
+        minutes: 45,
+        difficulty: "core",
+        scripts: ["entropy-triage.py", "malware-yara-gen.sh", "volatility-ics.sh"],
+        docs: ["data/references/malware-analysis-reference.md"],
       },
       {
         id: "unpacking",

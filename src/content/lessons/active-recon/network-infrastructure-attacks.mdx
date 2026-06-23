@@ -1,0 +1,95 @@
+## Owning the plumbing
+
+Before you attack hosts, you attack the network they sit on. Switches, routers,
+and the name-resolution layer were built for availability, not security, and a
+position on the LAN unlocks sniffing, redirection, and credential capture. This
+lesson is the Layer 2 / Layer 3 attack-and-defense catalog; the full command
+reference is `data/references/network-infrastructure-attacks.md`.
+
+**These are active attacks against live infrastructure — written authorization is
+mandatory.** Many are also availability-affecting, so confirm they are in scope.
+
+## Layer 2: the switch
+
+```text
+CAM/MAC overflow   flood the MAC table -> switch "fails open" like a hub -> sniff all
+                   Defense: port security (limit MACs per port)
+VLAN hopping       switch-spoofing via DTP, or double-tagging (attacker access-port
+                   VID == trunk native VID) to reach a restricted VLAN
+                   Defense: switchport nonegotiate; mode access; unused native VLAN
+ARP poisoning      gratuitous ARP -> MITM on the segment
+                   Defense: Dynamic ARP Inspection (DAI) on the DHCP-snooping table
+DHCP spoofing      rogue DHCP hands out attacker gateway/DNS
+                   Defense: DHCP snooping trusted ports
+STP manipulation   claim root bridge -> reroute traffic
+                   Defense: BPDU Guard / Root Guard
+```
+
+## Name-resolution poisoning
+
+When DNS fails, Windows falls back to LLMNR and NBT-NS — broadcast/multicast
+protocols any host can answer. Responder answers them and harvests NetNTLM hashes.
+
+```text
+LLMNR    multicast 224.0.0.252   NBT-NS   broadcast    (also WPAD, mDNS)
+Order on Windows: DNS -> LLMNR -> NBT-NS -> LMHOSTS
+Defense: disable LLMNR + NBT-NS via GPO; SMB signing
+```
+
+## Layer 3: routers and redundancy
+
+```text
+HSRP / VRRP hijack   HSRP udp/1985 (priority) | VRRP IP protocol 112 -> become the
+                     gateway. Defense: authentication keys + ACLs
+BGP route hijack     advertise a more-specific (longer) prefix — beats a shorter AS
+                     path. Defense: prefix filtering, RPKI, max-prefix
+OSPF/EIGRP/RIP       inject routes; OSPF default password is "cisco"
+                     Defense: MD5/area authentication
+Amplification DDoS   NTP monlist (~550x), DNS ANY, SNMP, memcached
+                     Defense: disable monlist, BCP38 egress filtering, rate-limit
+```
+
+## SNMP and 802.1X
+
+```bash
+# SNMP — udp/161 query, udp/162 trap; default community strings public(RO)/private(RW)
+onesixtyone -c community.txt $TARGET
+snmpwalk -v2c -c public $TARGET
+```
+
+SNMP v1/v2c send community strings in cleartext; only v3 adds auth + privacy.
+
+**802.1X** port authentication: EAP-TLS (mutual certificates) is the strong mode.
+PEAP is vulnerable to an *evil-twin* attack — a rogue AP plus rogue RADIUS server
+captures MSCHAPv2 credentials whenever the client's "validate server certificate"
+setting is disabled. Defense: enforce server-cert validation, prefer EAP-TLS.
+
+## Cisco hardening essentials
+
+```text
+Password types   0 plaintext | 5 MD5+salt | 7 reversible obfuscation | 8 PBKDF2 | 9 SCRYPT (best)
+AAA              Authentication (who) | Authorization (what) | Accounting (logging)
+TACACS+ 49/tcp   encrypts the ENTIRE AAA payload (Cisco)
+RADIUS  1812/1813 udp   encrypts only the password
+Always           service password-encryption; login on-failure/on-success log
+```
+
+## What the toolkit does for you
+
+No single script automates LAN attacks, but enumeration that feeds them is
+covered:
+
+```bash
+./scripts/pentest.sh example.com 203.0.113.10     # includes SMB/SNMP enumeration
+```
+
+See `data/references/enumeration-checklist.md` for SMB/SNMP/SMTP enumeration
+commands and `data/references/network-infrastructure-attacks.md` for the full
+attack/defense reference.
+
+## Where this fits
+
+This is the bridge between recon and exploitation on internal engagements: a LAN
+foothold plus name-resolution poisoning often yields the first set of credentials,
+which feeds the AD-attacks track. On the defensive side, every attack here maps to
+a concrete switch/router control — useful for both red and blue reports.

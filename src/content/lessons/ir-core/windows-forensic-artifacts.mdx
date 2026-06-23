@@ -1,0 +1,92 @@
+## Where the evidence lives
+
+Once `forensics-collect.sh` has acquired an image, the investigation is a hunt
+through Windows artifacts — the breadcrumbs the OS records whether or not the user
+or attacker meant to leave them. This lesson maps the artifacts that answer the
+questions IR actually asks: *what ran, when, by whom, from what device, and where
+did the files go.* Full locations are in `data/references/windows-forensic-artifacts.md`.
+
+## Registry hives on disk
+
+The live registry is assembled from hive files you can carve from an image:
+
+```text
+NTUSER.DAT     %USERPROFILE%\NTUSER.DAT                 -> HKCU (per-user)
+UsrClass.dat   %APPDATA%\Local\Microsoft\Windows        -> HKCU\Software\Classes
+SYSTEM SOFTWARE SAM SECURITY   %SYSTEMROOT%\System32\config   -> HKLM
+```
+
+## The SANS "Red Poster" categories
+
+The Windows Forensic Analysis poster groups artifacts by the question they answer:
+Application Execution, File/Folder Opening, Deleted/Known Files, Browser Activity,
+Cloud Storage, Account Usage, External Device/USB Usage, and Network Activity &
+Physical Location. Memorize the *category → artifact* mapping; that is what turns a
+vague "did they run X?" into a specific place to look.
+
+## Program execution
+
+```text
+Prefetch     %SYSTEMROOT%\Prefetch — timestamps logged ~10s AFTER execution;
+             Win7 keeps 128 files, Win8+ up to 1024
+Amcache.hve  records the SHA1 of executables and drivers seen
+Shimcache    AppCompatCache — programs present (execution not guaranteed)
+UserAssist   NTUSER.DAT, GUI launches, ROT-13 encoded
+SRUM         30-60 days of app usage + bytes sent/received per app per user
+```
+
+## File and folder access
+
+```text
+Shellbags    folders a user browsed (folder name only — not the files inside)
+Jump Lists   recent files per application
+LNK files    shortcut metadata: target path, volume serial, MAC times
+Open/Save MRU, RecentDocs   dialog and Explorer history
+```
+
+## NTFS timestamps (MACB)
+
+```text
+M  Modified        A  Access        C  metadata Change        B  Birth/created
+```
+
+A plain **rename changes only the Metadata-Change (C) time** — a handy tell.
+Compare `$STANDARD_INFORMATION` against `$FILE_NAME` times to spot *timestomping*,
+where malware backdates a dropped file.
+
+## Event logs
+
+`*.evtx` live in `%SYSTEMROOT%\System32\winevt\Logs` (Security / System /
+Application channels). The IDs that carry an investigation:
+
+```text
+4624 logon        4625 failed logon     4634/4647 logoff
+4663 object access 4672 special privs    4688 process creation
+4720 user created  7045 service install  1102 audit log CLEARED
+```
+
+## Volatility and order of volatility
+
+Collect most-volatile first. Memory holds what disk never will — live network
+connections, running/injected processes, loaded DLLs and handles, and data that is
+encrypted on disk but decrypted in RAM.
+
+## What the toolkit does for you
+
+```bash
+./scripts/forensics-collect.sh --remote admin@host --incident-id INC-2026-001
+./scripts/persistence-audit.sh --remote admin@host --os windows --incident-id INC-2026-001
+python3 scripts/timeline-merge.py --sources *.evtx *.csv --output timeline.md
+./scripts/volatility-ics.sh run --chain triage --image mem.raw --incident-id INC-2026-001
+```
+
+`forensics-collect.sh` pulls the artifacts above with chain-of-custody hashing;
+`persistence-audit.sh` enumerates the registry Run keys, services, and tasks where
+attackers persist; `timeline-merge.py` fuses sources into one timeline.
+
+## Where this fits
+
+This is the analysis stage between **collection** (forensics-collect) and
+**eradication** (containment): the artifacts tell you scope — which hosts, which
+accounts, what the attacker ran and took — so you can build the timeline and the
+IOC list the rest of the IR depends on.
