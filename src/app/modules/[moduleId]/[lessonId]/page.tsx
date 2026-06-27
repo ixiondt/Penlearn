@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getLesson, modules, getLab } from "@/content/curriculum";
 import { LessonNav } from "@/components/lesson-nav";
+import { LessonCTA } from "@/components/lesson-cta";
 import { AttckChip, DifficultyChip, ModeChip, ScriptChip } from "@/components/chips";
 import { LabCard } from "@/components/lab-card";
 import { loadLesson } from "@/lib/content";
@@ -25,6 +26,7 @@ export default async function LessonPage(props: { params: Promise<{ moduleId: st
   const Content = mdx?.default;
 
   return (
+    <>
     <div className="container-app" style={{ paddingBlock: "var(--space-3xl)" }}>
       <div style={{ display: "grid", gap: "var(--space-2xl)", gridTemplateColumns: "1fr" }} className="lesson-grid">
         <div>
@@ -73,6 +75,8 @@ export default async function LessonPage(props: { params: Promise<{ moduleId: st
         }
       `}</style>
     </div>
+    <LessonCTA />
+    </>
   );
 }
 
