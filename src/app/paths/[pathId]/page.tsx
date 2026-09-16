@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getPath, paths, getModule, pathMinutes, trackTitle } from "@/content/curriculum";
+import { getPath, paths, getModule, pathMinutes, pathWeeks, STUDY_HOURS_PER_WEEK, trackTitle } from "@/content/curriculum";
 import { ModeChip } from "@/components/chips";
 import type { PathEmphasis } from "@/lib/types";
 
@@ -26,6 +26,7 @@ export default async function PathPage(props: { params: Promise<{ pathId: string
   if (!p) notFound();
 
   const mins = pathMinutes(p);
+  const weeks = pathWeeks(p);
 
   return (
     <div className="container-app" style={{ paddingBlock: "var(--space-3xl)" }}>
@@ -44,6 +45,9 @@ export default async function PathPage(props: { params: Promise<{ pathId: string
         <div style={{ display: "flex", gap: "var(--space-lg)", color: "var(--color-fg-3)", fontSize: "0.875rem", marginTop: "var(--space-md)" }}>
           <span>{p.steps.length} modules</span>
           <span>~{Math.round(mins / 30) / 2} hr total</span>
+          <span title={`At ${STUDY_HOURS_PER_WEEK} hrs/week — a suggested pace, not a lock`}>
+            ~{weeks} {weeks === 1 ? "week" : "weeks"} @ {STUDY_HOURS_PER_WEEK} hrs/week
+          </span>
         </div>
       </header>
 

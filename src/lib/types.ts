@@ -2,6 +2,22 @@ export type Mode = "passive" | "active" | "defense" | "report" | "all";
 export type Track = "foundations" | "recon" | "exploit" | "soc" | "ir" | "ot" | "report" | "malware";
 export type Difficulty = "intro" | "core" | "advanced";
 
+/**
+ * The completion contract for a hands-on lab. Turns "read this lesson" into
+ * "prove you did this" — Objective → Task → Verify → Pass, rendered on both the
+ * lesson page and the lab card. Only meaningful when `hasLab` is true.
+ */
+export interface LabContract {
+  /** What competence completing the lab demonstrates. */
+  objective: string;
+  /** The concrete thing to build or run. */
+  task: string;
+  /** The command / observation that shows it worked. */
+  verify: string;
+  /** The bar that counts as done. */
+  pass: string;
+}
+
 export interface Lesson {
   id: string;
   title: string;
@@ -13,6 +29,13 @@ export interface Lesson {
   docs?: string[];
   hasLab?: boolean;
   labId?: string;
+  /** Pass criteria for this lesson's lab. Present only when `hasLab`. */
+  labContract?: LabContract;
+  /**
+   * A capstone/checkpoint lesson that consolidates the module before advancing.
+   * Surfaced with a distinct chip; conceptually the module's exit gate.
+   */
+  isCheckpoint?: boolean;
 }
 
 export interface Module {
@@ -23,6 +46,11 @@ export interface Module {
   summary: string;
   prerequisites?: string[];
   mode: Mode;
+  /**
+   * One-line exit outcome: what a learner can do once the module is complete.
+   * Mirrors the Agentic-Coding "By the end of Phase 1 you are…" statement.
+   */
+  outcome?: string;
   lessons: Lesson[];
 }
 

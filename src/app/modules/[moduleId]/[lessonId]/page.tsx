@@ -3,8 +3,9 @@ import { notFound } from "next/navigation";
 import { getLesson, modules, getLab } from "@/content/curriculum";
 import { LessonNav } from "@/components/lesson-nav";
 import { LessonCTA } from "@/components/lesson-cta";
-import { AttckChip, DifficultyChip, ModeChip, ScriptChip } from "@/components/chips";
+import { AttckChip, CheckpointChip, DifficultyChip, ModeChip, ScriptChip } from "@/components/chips";
 import { LabCard } from "@/components/lab-card";
+import { LabContract } from "@/components/lab-contract";
 import { loadLesson } from "@/lib/content";
 
 export function generateStaticParams() {
@@ -35,6 +36,7 @@ export default async function LessonPage(props: { params: Promise<{ moduleId: st
             <div style={{ display: "flex", gap: "0.375rem", flexWrap: "wrap", marginBottom: "var(--space-md)" }}>
               <ModeChip mode={mod.mode} />
               <DifficultyChip d={lesson.difficulty} />
+              {lesson.isCheckpoint && <CheckpointChip />}
               <span className="chip">{lesson.minutes} min</span>
               {lesson.attck?.map((a) => <AttckChip key={a} id={a} />)}
               {lesson.scripts?.map((s) => <ScriptChip key={s} name={s} />)}
@@ -50,7 +52,10 @@ export default async function LessonPage(props: { params: Promise<{ moduleId: st
           {lab && (
             <section style={{ marginTop: "var(--space-3xl)" }}>
               <h2>Lab</h2>
-              <LabCard lab={lab} />
+              <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-lg)" }}>
+                {lesson.labContract && <LabContract contract={lesson.labContract} />}
+                <LabCard lab={lab} />
+              </div>
             </section>
           )}
 

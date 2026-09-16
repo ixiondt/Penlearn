@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getModule, modules, trackTitle } from "@/content/curriculum";
-import { AttckChip, DifficultyChip, ModeChip, ScriptChip } from "@/components/chips";
+import { AttckChip, CheckpointChip, DifficultyChip, ModeChip, ScriptChip } from "@/components/chips";
 
 export function generateStaticParams() {
   return modules.map((m) => ({ moduleId: m.id }));
@@ -34,6 +34,27 @@ export default async function ModulePage(props: { params: Promise<{ moduleId: st
             <span>Prereqs: {mod.prerequisites.join(", ")}</span>
           )}
         </div>
+        {mod.outcome && (
+          <div
+            className="card"
+            style={{ marginTop: "var(--space-lg)", display: "flex", gap: "var(--space-md)", alignItems: "baseline" }}
+          >
+            <span
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: "0.6875rem",
+                color: "var(--color-fg-3)",
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+                whiteSpace: "nowrap",
+                paddingTop: "0.125rem",
+              }}
+            >
+              Outcome
+            </span>
+            <p style={{ margin: 0, color: "var(--color-fg-1)", fontSize: "0.9375rem" }}>{mod.outcome}</p>
+          </div>
+        )}
       </header>
 
       <ol style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
@@ -52,6 +73,7 @@ export default async function ModulePage(props: { params: Promise<{ moduleId: st
                   <h3 style={{ margin: 0, fontSize: "1.0625rem", color: "var(--color-fg-0)" }}>{l.title}</h3>
                   <div style={{ display: "flex", gap: "0.375rem", flexWrap: "wrap" }}>
                     <DifficultyChip d={l.difficulty} />
+                    {l.isCheckpoint && <CheckpointChip />}
                     <span className="chip">{l.minutes} min</span>
                     {l.hasLab && <span className="chip chip-warn">lab</span>}
                   </div>

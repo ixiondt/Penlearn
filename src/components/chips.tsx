@@ -25,3 +25,11 @@ export function AttckChip({ id }: { id: string }) {
 export function ScriptChip({ name }: { name: string }) {
   return <span className="chip" title="Toolkit script">{name}</span>;
 }
+
+export function CheckpointChip() {
+  return (
+    <span className="chip chip-warn" title="Module checkpoint — consolidates the module before you advance">
+      checkpoint
+    </span>
+  );
+}

@@ -8,6 +8,8 @@ export const modules: Module[] = [
     title: "Foundations & Authorization",
     summary:
       "Mental models, ATT&CK fluency, and the authorization discipline that gates every engagement. No tools yet — get the rules right first.",
+    outcome:
+      "You can scope an engagement, map activity to ATT&CK, and stand up a clean workspace — the discipline every later module assumes.",
     mode: "all",
     lessons: [
       {
@@ -38,6 +40,14 @@ export const modules: Module[] = [
         scripts: ["engagement-init.sh", "scan-db.py"],
         hasLab: true,
         labId: "01-workspace",
+        labContract: {
+          objective:
+            "Prove you can scaffold engagement workspaces of different types and see them tracked in scan-db — the discipline every later engagement assumes.",
+          task: "Run engagement-init.sh for a web, an IR, and an OT engagement, then list them with scan-db.py.",
+          verify:
+            "scan-db.py list shows all three, each with its per-type layout (IR has 01-timeline.md / 03-iocs.txt; OT has a three-signatory 00-authorization.txt).",
+          pass: "Three workspaces with the correct per-type layouts, all three visible in scan-db — registration was automatic, not a manual step.",
+        },
       },
       {
         id: "modes",
@@ -46,6 +56,7 @@ export const modules: Module[] = [
           "Where each mode starts and stops, who owns which decisions, why SOC hands off to IR at confirmed true positive.",
         minutes: 20,
         difficulty: "intro",
+        isCheckpoint: true,
         docs: ["docs/soc-reference.md", "docs/ir-reference.md"],
       },
     ],
@@ -58,6 +69,8 @@ export const modules: Module[] = [
     summary:
       "OSINT, certificate transparency, passive DNS, breach data, infrastructure clustering. Zero target interaction.",
     prerequisites: ["foundations"],
+    outcome:
+      "You can build an attack-surface picture of a target from public data alone — subdomains, infrastructure, exposed credentials, lookalike domains — without ever touching it.",
     mode: "passive",
     lessons: [
       {
@@ -71,6 +84,14 @@ export const modules: Module[] = [
         attck: ["T1589", "T1590", "T1591", "T1596"],
         hasLab: true,
         labId: "02-osint",
+        labContract: {
+          objective:
+            "Prove you can build an intel picture of a target from passive sources alone and judge what each source contributed.",
+          task: "Run osint-passive.sh against acme-fake.local (toolkit attached to the lab network) and walk the output bundle.",
+          verify:
+            "Compare your findings against targets/ground-truth.md, and produce a valid favicon-hash Shodan URL for the served favicon.",
+          pass: "You recovered at least 3 of the ground-truth facts (missing at most 2) and can say what each output file contributes — without touching the target.",
+        },
       },
       {
         id: "subdomain-discovery",
@@ -89,6 +110,7 @@ export const modules: Module[] = [
           "Typosquats, CT-log lookalikes, Cloudflare-fronted evilginx fingerprinting, favicon hash hunting via Shodan.",
         minutes: 35,
         difficulty: "advanced",
+        isCheckpoint: true,
         scripts: ["phish-infra-check.sh"],
         attck: ["T1583.001", "T1583.008"],
       },
@@ -102,6 +124,8 @@ export const modules: Module[] = [
     summary:
       "nmap, service fingerprinting, SMB/SMTP/SNMP enumeration. Requires written authorization.",
     prerequisites: ["foundations", "passive-recon"],
+    outcome:
+      "You can turn an authorized target range into a triaged, risk-scored findings list — from host discovery through service enumeration to CVE mapping.",
     mode: "active",
     lessons: [
       {
@@ -115,6 +139,14 @@ export const modules: Module[] = [
         attck: ["T1595.001", "T1595.002"],
         hasLab: true,
         labId: "03-scan-lab",
+        labContract: {
+          objective:
+            "Prove you can drive the full pentest.sh pipeline over an authorized range and land scored results in scan-db.",
+          task: "Run pentest.sh against the scan.local /24, then cve-lookup.sh → risk-scoring.py → scan-db.py import-findings.",
+          verify:
+            "nmap identifies all 5 services (ftp/ssh/web/smb/snmp), enum4linux returns the SMB share, and scan-db is queryable by severity.",
+          pass: "All 5 services identified and at least 3 HIGH-severity findings persisted to scan-db — queryable, not hand-copied.",
+        },
       },
       {
         id: "service-enumeration",
@@ -142,6 +174,7 @@ export const modules: Module[] = [
           "Switch, router, and name-resolution attacks and defenses: CAM overflow, VLAN hopping, ARP/DAI, LLMNR/Responder, HSRP/VRRP, amplification, 802.1X PEAP evil-twin, Cisco hardening.",
         minutes: 40,
         difficulty: "core",
+        isCheckpoint: true,
         docs: ["data/references/network-infrastructure-attacks.md", "data/references/enumeration-checklist.md"],
       },
     ],
@@ -154,6 +187,8 @@ export const modules: Module[] = [
     summary:
       "From content discovery through SQLi/SSRF/SSTI/XXE/IDOR/upload to JWT, OAuth, and WAF bypass.",
     prerequisites: ["active-recon"],
+    outcome:
+      "You can test a web application end to end — map its content, exploit the major injection and auth classes, and get past a WAF when one stands in the way.",
     mode: "active",
     lessons: [
       {
@@ -167,6 +202,14 @@ export const modules: Module[] = [
         attck: ["T1190", "T1083"],
         hasLab: true,
         labId: "04-dvwa-juice",
+        labContract: {
+          objective:
+            "Prove you can map an app's content and API surface before testing any single vulnerability.",
+          task: "Run webapp-scanner.sh against the dvwa / juice / api targets, then web-fuzzer.sh --api-discovery against api.web.local.",
+          verify:
+            "The scan enumerates endpoints on each target and surfaces the vuln-api routes that aren't linked from the UI.",
+          pass: "A content map for all three targets that separates real findings from low-confidence ones by their severity tags.",
+        },
       },
       {
         id: "injection",
@@ -195,6 +238,7 @@ export const modules: Module[] = [
           "Vendor fingerprinting (12 vendors), encoding bypass, header manipulation, origin IP discovery.",
         minutes: 45,
         difficulty: "advanced",
+        isCheckpoint: true,
         docs: ["data/references/waf-bypass-reference.md"],
       },
     ],
@@ -207,6 +251,8 @@ export const modules: Module[] = [
     summary:
       "msfconsole, msfvenom, the database, sessions, and the discipline that keeps you out of trouble. Four toolkit scripts wrap the framework so you can stay in the engagement workflow.",
     prerequisites: ["active-recon"],
+    outcome:
+      "You can go from a scored findings file to a gated Metasploit resource script, generate the right payload, land a session, and work it safely under ROE.",
     mode: "active",
     lessons: [
       {
@@ -229,6 +275,14 @@ export const modules: Module[] = [
         scripts: ["msf-rc-gen.sh", "msf-session.sh"],
         hasLab: true,
         labId: "06-msf-lab",
+        labContract: {
+          objective:
+            "Prove you can turn a scored findings file into a gated Metasploit RC script and drive it to a session.",
+          task: "Generate an RC from scored.json with msf-rc-gen.sh (target 10.66.0.20, lhost 10.66.0.10), run its auxiliary section, then land a session.",
+          verify:
+            "The RC runs auxiliary scanners first and confirms at least one Metasploitable2 vulnerability before any exploit fires.",
+          pass: "An aux scanner confirms a vuln and you land a meterpreter session on the Metasploitable2 target — exploitation gated, not automatic.",
+        },
       },
       {
         id: "msfvenom-payloads",
@@ -247,6 +301,7 @@ export const modules: Module[] = [
           "Working a meterpreter session: privesc suggest, mimikatz, autoroute, portfwd, SOCKS proxy, token impersonation. Persistence under ROE only.",
         minutes: 75,
         difficulty: "advanced",
+        isCheckpoint: true,
         scripts: ["msf-post.sh", "msf-session.sh"],
         attck: ["T1003.001", "T1055", "T1090", "T1572"],
       },
@@ -260,6 +315,8 @@ export const modules: Module[] = [
     summary:
       "Kerberoasting, AS-REP roasting, Pass the Ticket. BloodHound attack graphs and the 19 pre-built queries.",
     prerequisites: ["active-recon"],
+    outcome:
+      "You can extract and crack Kerberos tickets, map a domain's attack paths in BloodHound, and pick the quietest lateral-movement technique that reaches your objective.",
     mode: "active",
     lessons: [
       {
@@ -272,6 +329,14 @@ export const modules: Module[] = [
         attck: ["T1558.003", "T1558.004"],
         hasLab: true,
         labId: "05-adlab",
+        labContract: {
+          objective:
+            "Prove you can request and crack both service-account and AS-REP-roastable tickets against a domain you control.",
+          task: "In the GOAD lab, run impacket-GetUserSPNs and impacket-GetNPUsers against the DC, then crack the hashes with hashcat against rockyou.",
+          verify:
+            "hashcat -m 13100 recovers a service-account password and -m 18200 recovers an AS-REP user password.",
+          pass: "Two cracked credentials — one kerberoasted (-m 13100), one AS-REP-roasted (-m 18200) — each documented with the account it belongs to.",
+        },
       },
       {
         id: "bloodhound",
@@ -288,6 +353,7 @@ export const modules: Module[] = [
         summary: "WinRM > SMB > WMI > DCOM > RDP > PsExec — pick the quietest tool that works.",
         minutes: 45,
         difficulty: "advanced",
+        isCheckpoint: true,
         docs: ["data/references/redteam-ops-reference.md"],
         attck: ["T1021.001", "T1021.002", "T1021.006"],
       },
@@ -301,6 +367,8 @@ export const modules: Module[] = [
     summary:
       "Read-only enumeration of AWS, Azure/Entra, GCP, and Kubernetes. Container escape audit from inside a pod.",
     prerequisites: ["active-recon"],
+    outcome:
+      "You can enumerate identity, privilege paths, and misconfigurations across AWS, Azure/Entra, GCP, and Kubernetes read-only — and audit a pod for container-escape conditions.",
     mode: "active",
     lessons: [
       {
@@ -328,6 +396,7 @@ export const modules: Module[] = [
           "Cluster info, RBAC, privileged pods, host mounts, NetworkPolicies. Caps / mounts / kernel CVE audit from inside a pod.",
         minutes: 60,
         difficulty: "advanced",
+        isCheckpoint: true,
         scripts: ["k8s-enum.sh", "container-escape-check.sh"],
       },
     ],
@@ -340,6 +409,8 @@ export const modules: Module[] = [
     summary:
       "Probing LLMs and AI-integrated apps for prompt injection, jailbreaks, data leakage, and unsafe output handling. garak as the scanning engine; OWASP LLM Top 10 + MITRE ATLAS as the map.",
     prerequisites: ["foundations", "web-app"],
+    outcome:
+      "You can scan an LLM or AI-integrated app with garak, normalize the results into findings, and map each to the OWASP LLM Top 10 and MITRE ATLAS — knowing what the scanner covers and what stays manual.",
     mode: "active",
     lessons: [
       {
@@ -361,6 +432,14 @@ export const modules: Module[] = [
         scripts: ["ai-redteam.sh", "report-generator.py"],
         hasLab: true,
         labId: "09-ai-redteam",
+        labContract: {
+          objective:
+            "Prove you can scan a model you fully control with garak and turn its raw output into tagged findings.",
+          task: "Run ai-redteam.sh against the local ollama model (llama3.2:1b) with the promptinject/dan/encoding/leakreplay probes, past the auth gate, --to-db.",
+          verify:
+            "garak produces findings.json whose entries carry OWASP LLM (and ATLAS where applicable) tags, and it flows through risk-scoring into the report.",
+          pass: "A findings.json from the model scan, OWASP/ATLAS-tagged, rendered into the HTML/DOCX report alongside the rest of the engagement.",
+        },
       },
       {
         id: "owasp-llm-atlas",
@@ -369,6 +448,7 @@ export const modules: Module[] = [
           "Mapping findings to LLM01–LLM10 and the ATLAS adversarial-ML matrix. Where garak covers the model-behavioral half and what stays manual: RAG poisoning, tool-calling abuse, supply chain.",
         minutes: 40,
         difficulty: "advanced",
+        isCheckpoint: true,
         docs: ["data/references/ai-security-checklist.md"],
       },
     ],
@@ -381,6 +461,8 @@ export const modules: Module[] = [
     summary:
       "The 72-hypothesis catalog as a hunting methodology — H-001 through H-072 across endpoint, AD, web, AiTM, threat-actor tooling, and ICS.",
     prerequisites: ["foundations"],
+    outcome:
+      "You can turn a falsifiable hunt hypothesis into a working Sigma detection, validate it against real telemetry, and recognize the artifacts commodity tooling leaves behind.",
     mode: "defense",
     lessons: [
       {
@@ -403,6 +485,14 @@ export const modules: Module[] = [
         attck: ["T1548.002", "T1574.001", "T1558.003"],
         hasLab: true,
         labId: "07-sigma-lab",
+        labContract: {
+          objective:
+            "Prove you can author a Sigma rule that separates malicious events from benign noise at a usable signal-to-noise ratio.",
+          task: "Generate a rule for T1059.001 with sigma-rule-builder.sh, convert it to OpenSearch DSL, and backtest against penlearn-windows-4688.",
+          verify:
+            "Compute TP/FP/FN against the index's _meta.malicious labels and calculate precision and recall.",
+          pass: "The rule reaches >0.7 precision and >0.7 recall on the seed data, with tuning captured in its falsepositives: field.",
+        },
       },
       {
         id: "nsm-packet-analysis",
@@ -434,8 +524,17 @@ export const modules: Module[] = [
         scripts: ["sigma-rule-builder.sh"],
         docs: ["docs/soc-reference.md §2.8"],
         attck: ["T1047", "T1569.002", "T1003.002", "T1218", "T1567.002"],
+        isCheckpoint: true,
         hasLab: true,
         labId: "07-sigma-lab",
+        labContract: {
+          objective:
+            "Prove you can detect the host artifacts commodity post-exploitation tooling leaves behind in real log data.",
+          task: "Author Sigma rules for the seeded LSASS handle access (4663, Mimikatz/secretsdump-shaped) and the unsigned service install (7045, psexec-shaped), then backtest them.",
+          verify:
+            "Each rule fires on its seeded malicious event and is mapped to its ATT&CK technique (T1003.001/.002, T1569.002).",
+          pass: "Both tooling artifacts are caught by a named rule with an ATT&CK mapping and measured precision/recall on the seed data.",
+        },
       },
     ],
   },
@@ -460,6 +559,14 @@ export const modules: Module[] = [
         attck: ["T1070", "T1059"],
         hasLab: true,
         labId: "08-ir-lab",
+        labContract: {
+          objective:
+            "Prove you can acquire evidence from a live compromised host volatile-first, with a chain of custody that verifies.",
+          task: "Run forensics-collect.sh against the pre-compromised host (root@10.90.0.10) into an INC-2026-001 workspace.",
+          verify:
+            "The bundle collects volatile state before disk artifacts, and sha256sum -c CHAIN-OF-CUSTODY.txt passes for every item.",
+          pass: "A hashed evidence bundle whose chain-of-custody verifies, collected before you investigate the host — not after.",
+        },
       },
       {
         id: "windows-forensic-artifacts",
@@ -507,6 +614,7 @@ export const modules: Module[] = [
         difficulty: "core",
         scripts: ["entropy-triage.py", "malware-yara-gen.sh"],
         attck: ["T1027.002", "T1486", "T1555.003"],
+        isCheckpoint: true,
       },
     ],
   },
@@ -518,6 +626,8 @@ export const modules: Module[] = [
     summary:
       "Purdue model, three-stakeholder gate, OT-safe containment, ICS ATT&CK (T0xxx), passive-only protocol analysis, ACDC framework, Diamond Model, Crown Jewel Analysis, ICS-malware YARA, HMI/EWS memory forensics — ICS515-derived end-to-end.",
     prerequisites: ["foundations", "ir-core"],
+    outcome:
+      "You can respond to an OT incident safely — prioritize by the Purdue/safety hierarchy, analyze ICS protocols passively, run the ACDC/Diamond/Crown-Jewel workflow, and triage HMI/EWS memory without endangering the process.",
     mode: "defense",
     lessons: [
       {
@@ -596,6 +706,7 @@ export const modules: Module[] = [
           "Volatility 2/3 wrapper with named plugin chains (triage / network / injection / persistence / ics / ukraine2015 / stuxnet) — heuristic flagging emits findings.json.",
         minutes: 50,
         difficulty: "advanced",
+        isCheckpoint: true,
         scripts: ["volatility-ics.sh"],
         docs: ["data/references/grid-cert-quickref.md"],
         attck: ["T1055", "T1543.003", "T1547.001", "T1059.001"],
@@ -610,6 +721,8 @@ export const modules: Module[] = [
     summary:
       "Educational deep-dive into the techniques the toolkit's detection scripts respond to: dark-web access, the criminal economy itself, Ghidra-based reverse engineering, unpacking packed/crypted binaries, ransomware cryptography internals, the IAB / phishing-kit market, and C2 framework internals. Sourced from \"Dissecting the Dark Web\" (Kaye, No Starch 2026); leaked-source references via the book's companion repo.",
     prerequisites: ["foundations", "ir-core"],
+    outcome:
+      "You can explain the criminal economy your detections respond to and reverse a packed sample — navigate the underground market, statically triage a binary in Ghidra, unpack it, and read ransomware/C2 internals.",
     mode: "all",
     lessons: [
       {
@@ -680,6 +793,7 @@ export const modules: Module[] = [
           "Implant / client / server anatomy, Beacon Object Files (BOFs), Cobalt Strike's design space, and the Vermilion Strike (Linux Cobalt Strike clone) walkthrough — 1-byte XOR 0x69 config deobfuscation, http-get / post-ex / pipename blocks, DNS-as-beacon-channel + HTTP-as-data-channel.",
         minutes: 55,
         difficulty: "advanced",
+        isCheckpoint: true,
         attck: ["T1071.001", "T1071.004"],
       },
     ],
@@ -692,6 +806,8 @@ export const modules: Module[] = [
     summary:
       "DOCX deliverable, AI-assisted summary, VECTR detection coverage sync, STIX 2.1 CTI export.",
     prerequisites: ["foundations"],
+    outcome:
+      "You can turn findings into a client-ready DOCX/HTML report, sync detection coverage into VECTR for purple-team scoring, and export IOCs as a STIX 2.1 bundle the community can ingest.",
     mode: "report",
     lessons: [
       {
@@ -719,6 +835,7 @@ export const modules: Module[] = [
           "Turning incident IOCs into a STIX bundle the broader community can ingest.",
         minutes: 30,
         difficulty: "core",
+        isCheckpoint: true,
         scripts: ["cti-export.sh"],
       },
     ],
@@ -750,7 +867,7 @@ export const labs: Lab[] = [
     id: "03-scan-lab",
     title: "Active Scan Lab",
     summary: "Vulnerable target network you control end-to-end. Practice nmap + service enum + CVE pipeline.",
-    targets: ["metasploitable3-ub1404", "vuln-services-mini"],
+    targets: ["5-host scan.local net (vsftpd / OpenSSH / Apache 2.4.49 / Samba / snmpd)"],
     requires: ["docker compose", "8 GB RAM minimum"],
     isolation: "private-net",
     authorization: "self-hosted",
@@ -781,8 +898,8 @@ export const labs: Lab[] = [
     id: "06-msf-lab",
     title: "Metasploit Practice Lab",
     summary:
-      "Metasploitable3 + a small Windows target you control. Run the full chain: scan → db_import → handler → payload → session → post-exploit recipes.",
-    targets: ["metasploitable3-ub1404", "vuln-win-target", "kali-toolkit"],
+      "Metasploitable2 + an internal-only pivot target reached through it. Run the full chain: scan → db_import → handler → payload → session → post-exploit recipes → pivot.",
+    targets: ["Metasploitable2", "DVWA (internal pivot target)", "secops-toolkit (attacker)"],
     requires: ["docker compose", "8 GB RAM"],
     isolation: "private-net",
     authorization: "self-hosted",
@@ -992,6 +1109,18 @@ export function pathMinutes(p: LearningPath): number {
     if (!mod) return sum;
     return sum + mod.lessons.reduce((a, l) => a + l.minutes, 0);
   }, 0);
+}
+
+/**
+ * Assumed self-study cadence (hours/week) used to translate a path's total
+ * minutes into a suggested pace. A single knob so the number is consistent
+ * across every path — the self-serve analogue of a cohort's week-by-week calendar.
+ */
+export const STUDY_HOURS_PER_WEEK = 3;
+
+/** Suggested number of weeks to finish a path at {@link STUDY_HOURS_PER_WEEK}. */
+export function pathWeeks(p: LearningPath): number {
+  return Math.max(1, Math.ceil(pathMinutes(p) / 60 / STUDY_HOURS_PER_WEEK));
 }
 
 export function getModule(id: string): Module | undefined {
