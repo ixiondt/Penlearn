@@ -546,8 +546,19 @@ export const modules: Module[] = [
     summary:
       "Evidence-before-remediation discipline, containment without destroying volatile data, persistence audit, timeline reconstruction.",
     prerequisites: ["foundations"],
+    outcome:
+      "You can work an incident evidence-first — collect volatile data in the right order, audit persistence, reconstruct a timeline, and contain a host without destroying the proof.",
     mode: "defense",
     lessons: [
+      {
+        id: "ir-models",
+        title: "IR Methodology: Linear vs Dynamic",
+        summary:
+          "The two shapes of an incident: the linear NIST lifecycle that names the phases, and the dynamic loop where Scope → Contain → Eradicate → Recover repeat until a scope pass comes back empty. When to march and when to loop.",
+        minutes: 30,
+        difficulty: "intro",
+        docs: ["data/playbooks/response-actions-loop.md", "docs/ir-methodology.md"],
+      },
       {
         id: "forensics-collect",
         title: "Forensic Collection (PB-016)",

@@ -42,7 +42,7 @@ npm run search-index  # regenerate search index by hand
 
 ### Curriculum
 - **13 modules** across foundations, recon, exploitation, AI/LLM red-teaming, SOC, IR, ICS/OT, malware RE, reporting
-- **58 lessons** total — a growing set of fully authored lessons plus stubs that auto-render metadata + toolkit references
+- **59 lessons** total — a growing set of fully authored lessons plus stubs that auto-render metadata + toolkit references
 - **MDX-based** — drop a new file at `src/content/lessons/<moduleId>/<lessonId>.mdx`, it renders
 - **In-lesson `<Checkpoint>` quizzes** — multiple choice with explanations, local-only
 

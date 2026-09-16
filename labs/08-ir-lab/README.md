@@ -12,6 +12,11 @@
 - Reading a chain-of-custody hashed bundle
 - Building an incident timeline from collected artifacts
 
+> **Tabletop:** [`tabletop.md`](tabletop.md) walks this same host through the
+> dynamic Response Actions Loop — Scope → Contain → Eradicate → Recover, repeated
+> until a scope pass comes back empty. Do it after the `ir-models` lesson to see why
+> a single linear pass leaves the host still calling home.
+
 ## The story
 
 A SOC alert fired earlier today on the host `compromised-ubuntu`. Initial telemetry

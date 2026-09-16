@@ -1,0 +1,139 @@
+## Two ways to draw an incident
+
+Every incident response model is a picture of the same job: find the compromise,
+stop it, remove it, recover, learn. What separates the models is the *shape* they
+give that job — and the shape changes how you behave when the incident refuses to
+sit still.
+
+This lesson covers the two shapes you will actually use: the **linear lifecycle**
+that most standards describe, and the **dynamic loop** that most real incidents
+demand. You need both. The linear model names the phases; the loop model tells you
+what to do when a phase you thought you finished turns out not to be.
+
+## The linear lifecycle
+
+The classic model — NIST SP 800-61 is the canonical version — reads as a pipeline:
+
+```text
+PREPARE → DETECT → CONTAIN → ERADICATE → RECOVER → POST-INCIDENT
+                                                    (REPORTING runs in parallel)
+```
+
+Each phase completes and hands to the next. This is the model the toolkit's
+seven-step overview and its 18 playbooks are organized around, and it is the right
+mental model for the common case: a single host, commodity malware, a scope that
+genuinely is what it first looked like. Run the phases once, in order, and you are
+done.
+
+Its weakness is the arrow. Read literally, the pipeline says containment *finished*
+before eradication *started*. Real adversaries do not honor that boundary.
+
+## Where the pipeline breaks
+
+Picture the compromised host in the IR lab. You scope it, you find a rogue account
+and a cron callback, you contain, you eradicate the two mechanisms, you recover.
+The pipeline says you are done.
+
+Then recovery monitoring shows a process reaching out to the same C2 address on a
+*different* port. There was a second persistence mechanism — a systemd service — you
+had not enumerated. In the linear model this is a surprise that arrives after
+"Recover." In the model that fits reality, it is the expected output of an
+iteration, and it simply means the loop is not closed yet.
+
+## The dynamic loop
+
+The fix is not to throw away the lifecycle. It is to recognize that its middle —
+Scope, Contain, Eradicate, Recover — is a **loop**, not a march:
+
+```text
+DETECT
+   │
+VERIFY & TRIAGE   (true positive? severity? which playbook? whose decision?)
+   │
+   ▼
+ ┌──────────── RESPONSE ACTIONS LOOP ────────────┐
+ │  SCOPE      re-measured every pass, never assumed │
+ │  CONTAIN    on the current scope, reversibly      │
+ │  ERADICATE  all of it, not just the first finding │
+ │  RECOVER    monitor — telemetry feeds the re-scope│
+ │                                                   │
+ │  re-scope → found something new? LOOP AGAIN       │
+ │             found nothing new?  EXIT              │
+ └───────────────────────────────────────────────────┘
+   │
+DEBRIEF   (timeline, root cause, ATT&CK map, lessons → next Prepare)
+```
+
+You leave the loop when a fresh scope pass finds nothing new — not when you have
+"done containment once." That single change in the exit condition is what separates
+closing the incident from closing the ticket.
+
+<Checkpoint id="ir-models-loop" questions={[
+  {
+    q: "In the dynamic loop, when do you exit the Response Actions Loop?",
+    options: [
+      "After you have run Contain and Eradicate one time each",
+      "When a fresh Scope pass discovers no new host, account, persistence, or channel",
+      "As soon as the SOC handoff is validated",
+      "When the reporting deadline is reached"
+    ],
+    answer: 1,
+    why: "The exit condition is an empty re-scope, not a completed phase. 'We contained the hosts we knew about' is not an exit condition; 'we re-scoped and it came back clean' is."
+  },
+  {
+    q: "Why is Recover's monitoring treated as an input to the next iteration rather than a closing signal?",
+    options: [
+      "Because monitoring is required for compliance reporting",
+      "Because a returning beacon or reused credential reveals scope you missed, reopening the loop",
+      "Because recovery always fails the first time",
+      "Because the linear model has no recovery phase"
+    ],
+    answer: 1,
+    why: "Recovery telemetry is fresh evidence. A beacon returning on a fallback channel means a host or channel was outside your scope — that reopens the loop rather than ending it."
+  }
+]} />
+
+## When to loop, and when to march
+
+Match iteration count to uncertainty, not to a template:
+
+```text
+Single host, commodity malware, understood  →  one pass (effectively linear)
+Lateral movement suspected                  →  loop; each eradication can reveal a pivot
+Credential theft / AD compromise            →  loop hard; first scope is a floor, not a ceiling
+C2 with possible fallback channels          →  loop; recovery telemetry reopens it
+Persistence found                           →  loop until a scope pass finds no new mechanism
+```
+
+The IR hard rules you already know are really statements that the loop is not done.
+"Never block C2 before identifying all beaconing hosts." "Enumerate all persistence,
+not just the first mechanism." "Assume the obvious one is the decoy." Each one says:
+scope is still open, iterate again.
+
+## Scope is the load-bearing activity
+
+In the linear model, scoping is one early step. In the loop, it is the activity you
+return to every pass, and it decides the outcome. Two disciplines:
+
+- **Re-measure, don't remember.** Iteration one's scope is stale by iteration two —
+  eradication changed the environment and the adversary reacted. Re-run enumeration
+  each pass instead of trusting the old list.
+- **Scope is a superset, not a snapshot.** Treat the current affected-asset list as
+  the minimum, and keep every containment action reversible in case the next pass
+  proves it was aimed too narrow.
+
+This is exactly what the CTF challenges on the IR lab exercise: the rogue account
+and the C2 port are two artifacts you recover during the loop's **Scope** activity.
+Finding them is not the end of scoping — it is one pass of it. Work the tabletop in
+`labs/08-ir-lab/tabletop.md` to run the full loop against the seeded host.
+
+## The one-line version
+
+The linear lifecycle names the phases. The dynamic loop tells you the middle four
+repeat until a scope pass comes back empty — and that scope, re-measured every
+iteration, is what decides whether the incident is actually closed.
+
+> **Further reading.** Joshua Wright, *Dynamic Incident Response* (2026), develops
+> the dynamic (DAIR) methodology this lesson draws on — including dedicated
+> treatments of ransomware, cloud, and OT incidents, and how the loop maps onto
+> NIST CSF 2.0.
