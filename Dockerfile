@@ -26,6 +26,9 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
+# Pull patched OS libs into the final image (openssl/libcrypto3 DoS, CVE-2026-14456).
+# The scanner sees only this runner stage; upgrade here so the fix lands in the image.
+RUN apk upgrade --no-cache libcrypto3 libssl3
 RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
 # Drop the bundled npm CLI — the standalone server runs via `node`, not npm, and
 # npm's vendored deps (e.g. picomatch) trip image scanners. Removing it also slims
