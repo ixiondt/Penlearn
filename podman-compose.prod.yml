@@ -18,7 +18,11 @@ services:
       - PORT=3000
       - HOSTNAME=0.0.0.0
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      # 127.0.0.1, NOT localhost: the Next.js server binds IPv4 only, but inside
+      # the container `localhost` resolves to ::1 first, so a localhost probe gets
+      # connection-refused and the container reports (unhealthy) while serving 200
+      # publicly. That mismatch ran ~8 weeks / 162k failed probes on the droplet.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3

@@ -1,6 +1,6 @@
 $TTL 3600
 @   IN  SOA ns1.acme-fake.local. secops.acme-fake.local. (
-        2026031801  ; serial
+        2026091501  ; serial
         7200        ; refresh
         3600        ; retry
         1209600     ; expire
@@ -11,6 +11,7 @@ $TTL 3600
     IN  MX  10  mail.acme-fake.local.
     IN  TXT "v=spf1 ip4:10.50.0.0/24 -all"
     IN  TXT "admin=admin@acme-fake.local"
+    IN  TXT "flag=PENLEARN{passive_dns_txt_recon}"
 
 ns1         IN  A   10.50.0.10
 www         IN  A   10.50.0.20

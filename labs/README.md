@@ -43,6 +43,15 @@ Each lab directory contains:
 - `targets/` — any seed data, configs, or scripts the targets need
 - `solutions/` — hidden by default; the reference walkthrough
 
+## Capture the Flag
+
+Several labs carry CTF challenges — a flag you recover by running the technique,
+submitted and scored locally on the site's [`/ctf`](../src/app/ctf/page.tsx) page.
+Some flags are planted `PENLEARN{...}` tokens in the target files; others are a
+value you recover (a CVE id, a source IP, a rogue username). Verification is
+client-side salted-SHA-256, so no flag ships in plaintext in the built site.
+Maintainer answer key (spoilers): [`solutions/ctf-answers.md`](solutions/ctf-answers.md).
+
 ## Quick start
 
 ```bash

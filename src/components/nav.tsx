@@ -10,6 +10,7 @@ const links = [
   { href: "/modules", label: "Curriculum" },
   { href: "/paths", label: "Paths" },
   { href: "/labs", label: "Labs" },
+  { href: "/ctf", label: "CTF" },
   { href: "/install", label: "Install" },
   { href: "/reference", label: "Reference" },
   { href: "/progress", label: "Progress" },
